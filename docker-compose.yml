@@ -1,0 +1,53 @@
+services:
+  db:
+    image: pgvector/pgvector:pg15
+    restart: unless-stopped
+    ports:
+      - '5434:5432'
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-progsoft}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-progsoft}
+      POSTGRES_DB: ${POSTGRES_DB:-progsoft}
+    volumes:
+      - db_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U ${POSTGRES_USER:-progsoft}']
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 10s
+
+  app:
+    build: .
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      PORT: 3000
+      DATABASE_URL: postgresql://${POSTGRES_USER:-progsoft}:${POSTGRES_PASSWORD:-progsoft}@db:5432/${POSTGRES_DB:-progsoft}
+      JWT_SECRET: ${JWT_SECRET}
+      CSRF_SECRET: ${CSRF_SECRET}
+      FRONTEND_ORIGIN: ${FRONTEND_ORIGIN}
+      ADMIN_KEY: ${ADMIN_KEY}
+      ADMIN_EMAIL: ${ADMIN_EMAIL:-admin@admin.com}
+      ADMIN_DEFAULT_PASSWORD: ${ADMIN_DEFAULT_PASSWORD:-changeme123}
+    depends_on:
+      db:
+        condition: service_healthy
+
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    ports:
+      - '80:80'
+      - '443:443'
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - app
+
+volumes:
+  db_data:
+  caddy_data:
+  caddy_config:

@@ -1,0 +1,227 @@
+name: Release
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-latest
+            platform: macos
+            triple: aarch64-apple-darwin
+            artifact_glob: "src-tauri/target/release/bundle/dmg/*.dmg"
+          - os: windows-latest
+            platform: windows
+            triple: x86_64-pc-windows-msvc
+            artifact_glob: "src-tauri/target/release/bundle/msi/*.msi"
+          - os: ubuntu-22.04
+            platform: linux
+            triple: x86_64-unknown-linux-gnu
+            artifact_glob: "src-tauri/target/release/bundle/appimage/*.AppImage"
+
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install Python dependencies
+        run: |
+          pip install pyinstaller
+          pip install -r monkey/requirements.txt
+
+      - name: Build monkey sidecar (PyInstaller)
+        shell: bash
+        run: |
+          pyinstaller --onefile --clean --noconfirm \
+            --name "monkey-server-${{ matrix.triple }}" \
+            --hidden-import=uvicorn.lifespan.on \
+            --hidden-import=uvicorn.lifespan.off \
+            --hidden-import=uvicorn.protocols.http.auto \
+            --hidden-import=uvicorn.protocols.websockets.auto \
+            --hidden-import=uvicorn.loops.auto \
+            --hidden-import=email.mime.text \
+            --hidden-import=email.mime.multipart \
+            monkey/main.py
+
+      - name: Place sidecar in Tauri binaries dir
+        shell: bash
+        run: |
+          mkdir -p desktop/src-tauri/binaries
+          if [ "${{ matrix.platform }}" = "windows" ]; then
+            cp "dist/monkey-server-${{ matrix.triple }}.exe" desktop/src-tauri/binaries/
+          else
+            cp "dist/monkey-server-${{ matrix.triple }}" desktop/src-tauri/binaries/
+          fi
+
+      - name: Fetch bundled llama-server
+        shell: bash
+        env:
+          LLAMA_TARGET: ${{ matrix.triple }}
+        run: bash desktop/src-tauri/scripts/fetch-llama-server.sh
+
+      - name: Setup Node 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install desktop npm deps
+        working-directory: desktop
+        run: npm ci
+
+      - name: Setup Rust stable
+        uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          toolchain: stable
+
+      - name: Install Linux system deps
+        if: matrix.os == 'ubuntu-22.04'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev \
+            libappindicator3-dev \
+            librsvg2-dev \
+            patchelf \
+            libssl-dev \
+            libgtk-3-dev
+
+      - name: Generate app icons from SVG
+        working-directory: desktop
+        shell: bash
+        run: npx @tauri-apps/cli icon icon.svg
+
+      - name: Import macOS signing certificate
+        if: matrix.platform == 'macos'
+        env:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          KEYCHAIN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD }}
+        run: |
+          if [ -z "$APPLE_CERTIFICATE" ]; then
+            echo "no APPLE_CERTIFICATE secret; will fall back to ad-hoc sign after build"
+            exit 0
+          fi
+          echo "$APPLE_CERTIFICATE" | base64 --decode > /tmp/cert.p12
+          security create-keychain -p "$KEYCHAIN_PASSWORD" build.keychain
+          security default-keychain -s build.keychain
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" build.keychain
+          security import /tmp/cert.p12 -k build.keychain -P "$APPLE_CERTIFICATE_PASSWORD" -T /usr/bin/codesign
+          security set-key-partition-list -S apple-tool:,apple: -s -k "$KEYCHAIN_PASSWORD" build.keychain
+          rm /tmp/cert.p12
+
+      - name: Build Tauri app
+        working-directory: desktop
+        env:
+          # Signed + notarized when all secrets present; ad-hoc signed otherwise.
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY || '-' }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          # Windows code signing (Tauri 2 reads these).
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        run: npm run tauri build
+
+      - name: Ad-hoc sign macOS app (bypass Gatekeeper damaged warning)
+        if: matrix.platform == 'macos'
+        shell: bash
+        working-directory: desktop
+        env:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+        run: |
+          if [ -n "$APPLE_CERTIFICATE" ]; then
+            echo "real cert was used during build; skipping ad-hoc sign"
+            exit 0
+          fi
+          APP=$(find src-tauri/target/release/bundle/macos -name "*.app" | head -1)
+          if [ -n "$APP" ]; then
+            codesign --force --deep --sign - "$APP"
+            echo "Ad-hoc signed: $APP"
+          fi
+
+      - name: Repackage macOS DMG with install helper
+        if: matrix.platform == 'macos'
+        shell: bash
+        working-directory: desktop
+        env:
+          ARTIFACT_GLOB: ${{ matrix.artifact_glob }}
+        run: |
+          DMG=$(ls $ARTIFACT_GLOB | head -1)
+          [ -n "$DMG" ] || { echo "no dmg found"; exit 1; }
+          echo "repackaging $DMG with install helper..."
+          hdiutil convert "$DMG" -format UDRW -o /tmp/rw.dmg
+          rm "$DMG"
+          MOUNT=$(hdiutil attach -nobrowse -noverify /tmp/rw.dmg | tail -1 | awk '{print $3}')
+          cp install-help/macos-install.command "$MOUNT/"
+          cp install-help/INSTALL.txt "$MOUNT/"
+          chmod +x "$MOUNT/macos-install.command"
+          hdiutil detach "$MOUNT"
+          hdiutil convert /tmp/rw.dmg -format UDZO -o "$DMG"
+          rm /tmp/rw.dmg
+
+      - name: Bundle Windows installer with bypass helper
+        if: matrix.platform == 'windows'
+        shell: bash
+        working-directory: desktop
+        env:
+          ARTIFACT_GLOB: ${{ matrix.artifact_glob }}
+        run: |
+          MSI=$(ls $ARTIFACT_GLOB | head -1)
+          [ -n "$MSI" ] || { echo "no msi found"; exit 1; }
+          DIR=$(dirname "$MSI")
+          cp install-help/windows-install.bat "$DIR/"
+          cp install-help/INSTALL.txt "$DIR/"
+          cd "$DIR"
+          BASE=$(basename "$MSI" .msi)
+          # Powershell is always present on Windows runners; zip the bundle.
+          powershell -Command "Compress-Archive -Path '$(basename $MSI)','windows-install.bat','INSTALL.txt' -DestinationPath '${BASE}-Setup.zip' -Force"
+
+      - name: Find built artifact
+        id: artifact
+        shell: bash
+        working-directory: desktop
+        env:
+          ARTIFACT_GLOB: ${{ matrix.artifact_glob }}
+          MATRIX_PLATFORM: ${{ matrix.platform }}
+        run: |
+          if [ "$MATRIX_PLATFORM" = "windows" ]; then
+            ARTIFACT=$(ls src-tauri/target/release/bundle/msi/*-Setup.zip | head -1)
+          else
+            ARTIFACT=$(ls $ARTIFACT_GLOB | head -1)
+          fi
+          echo "path=desktop/$ARTIFACT" >> $GITHUB_OUTPUT
+          echo "name=$(basename $ARTIFACT)" >> $GITHUB_OUTPUT
+
+      - name: Get version from package.json
+        id: version
+        shell: bash
+        run: |
+          VERSION=$(node -p "require('./desktop/package.json').version")
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+
+      - name: Upload to backend
+        env:
+          BACKEND_URL: ${{ secrets.BACKEND_URL }}
+          ADMIN_KEY: ${{ secrets.ADMIN_KEY }}
+          PLATFORM: ${{ matrix.platform }}
+          VERSION: ${{ steps.version.outputs.version }}
+          ARTIFACT_PATH: ${{ steps.artifact.outputs.path }}
+          ARTIFACT_NAME: ${{ steps.artifact.outputs.name }}
+        shell: bash
+        run: |
+          curl --fail --retry 3 --retry-delay 10 -X POST "${BACKEND_URL}/api/admin/app/upload" \
+            -H "x-admin-key: ${ADMIN_KEY}" \
+            -F "platform=${PLATFORM}" \
+            -F "version=${VERSION}" \
+            -F "file=@${ARTIFACT_PATH};filename=${ARTIFACT_NAME}"

@@ -1,0 +1,127 @@
+{
+  "name": "progsoft-ai-backend",
+  "version": "0.1.0",
+  "description": "Minimal NestJS backend scaffold",
+  "main": "dist/main.js",
+  "scripts": {
+    "start": "nest start",
+    "start:dev": "nest build && node dist/main.js",
+    "start:watch": "nest start --watch --preserveWatchOutput",
+    "build": "nest build",
+    "prisma:generate": "prisma generate",
+    "test": "jest",
+    "test:e2e": "playwright test"
+  },
+  "jest": {
+    "moduleFileExtensions": [
+      "js",
+      "json",
+      "ts"
+    ],
+    "rootDir": ".",
+    "testRegex": ".*\\.spec\\.ts$",
+    "testPathIgnorePatterns": [
+      "/node_modules/",
+      "/dist/",
+      "/desktop/",
+      "/e2e/",
+      "/games/"
+    ],
+    "passWithNoTests": true,
+    "transform": {
+      "^.+\\.(t|j)s$": "ts-jest"
+    },
+    "collectCoverageFrom": [
+      "src/**/*.(t|j)s"
+    ]
+  },
+  "dependencies": {
+    "@nestjs/common": "^11.1.24",
+    "@nestjs/core": "^11.1.24",
+    "@nestjs/jwt": "^11.0.2",
+    "@nestjs/passport": "^11.0.5",
+    "@nestjs/platform-express": "^11.1.24",
+    "@nestjs/schedule": "^6.1.3",
+    "@nestjs/serve-static": "^5.0.5",
+    "@nestjs/throttler": "^6.5.0",
+    "@opentelemetry/api": "^1.9.1",
+    "@opentelemetry/auto-instrumentations-node": "^0.76.0",
+    "@opentelemetry/exporter-trace-otlp-http": "^0.218.0",
+    "@opentelemetry/sdk-node": "^0.218.0",
+    "@prisma/client": "^5.0.0",
+    "@types/nodemailer": "^8.0.0",
+    "@types/qrcode": "^1.5.6",
+    "axios": "^1.5.0",
+    "bcryptjs": "^2.4.3",
+    "body-parser": "^2.2.2",
+    "class-transformer": "^0.5.1",
+    "class-validator": "^0.15.1",
+    "cookie-parser": "^1.4.7",
+    "csrf-csrf": "^4.0.3",
+    "csv-parse": "^6.2.1",
+    "csv-stringify": "^6.7.0",
+    "docx": "^9.6.1",
+    "dotenv": "^16.0.0",
+    "exceljs": "^4.4.0",
+    "express": "^5.2.1",
+    "mammoth": "^1.12.0",
+    "nodemailer": "^8.0.6",
+    "passport": "^0.6.0",
+    "passport-jwt": "^4.0.0",
+    "pdf-lib": "^1.17.1",
+    "pdf-parse": "^2.4.5",
+    "pixi.js": "^7.4.3",
+    "playwright": "^1.59.1",
+    "prisma": "^5.0.0",
+    "qrcode": "^1.5.4",
+    "reflect-metadata": "^0.1.13",
+    "sharp": "^0.34.5",
+    "tesseract.js": "^7.0.0",
+    "vite": "^8.0.14"
+  },
+  "devDependencies": {
+    "@nestjs/cli": "^11.0.21",
+    "@nestjs/schematics": "^11.1.0",
+    "@nestjs/testing": "^11.1.24",
+    "@playwright/test": "^1.59.1",
+    "@types/bcryptjs": "^2.4.6",
+    "@types/body-parser": "^1.19.6",
+    "@types/cookie-parser": "^1.4.10",
+    "@types/cron": "^2.0.1",
+    "@types/express": "^5.0.6",
+    "@types/jest": "^30.0.0",
+    "@types/multer": "^2.1.0",
+    "@types/node": "^25.6.0",
+    "@types/passport": "^1.0.17",
+    "@types/passport-jwt": "^4.0.1",
+    "jest": "^30.3.0",
+    "supertest": "^7.2.2",
+    "ts-jest": "^29.4.9",
+    "typescript": "^5.9.3"
+  },
+  "directories": {
+    "doc": "docs",
+    "test": "tests"
+  },
+  "overrides": {
+    "@nestjs/platform-express": {
+      "multer": "^2.1.1",
+      "qs": "^6.15.2"
+    },
+    "protobufjs": "^8.4.2",
+    "file-type": "^22.0.1",
+    "uuid": "^11.1.1",
+    "esbuild": "^0.25.12"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/guillaume34110/llm-agent-.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "AGPL-3.0-or-later",
+  "bugs": {
+    "url": "https://github.com/guillaume34110/llm-agent/issues"
+  },
+  "homepage": "https://github.com/guillaume34110/llm-agent#readme"
+}

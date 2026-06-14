@@ -1,0 +1,54 @@
+Monkey — install instructions (unsigned indie build)
+======================================================
+
+Monkey ships without Apple/Microsoft code-signing certificates (those cost
+$99-$500/year and would just pass cost onto users). The binary is open
+source: read it at https://github.com/guillaume34110/llm-agent
+
+If your OS warns "damaged" / "unknown publisher", that is the standard
+warning for any unsigned app. Use the helpers below to bypass it once.
+
+macOS
+-----
+
+Option A — easiest:
+  Double-click `macos-install.command` from the Monkey.dmg window.
+  It installs Monkey to /Applications and removes the quarantine flag.
+
+Option B — manual:
+  1. Drag Monkey.app from the DMG to /Applications.
+  2. Open Terminal and run:
+       xattr -dr com.apple.quarantine /Applications/Monkey.app
+  3. Launch Monkey from Applications.
+
+Option C — System Settings:
+  1. Double-click Monkey.app, see the warning, click "Cancel".
+  2. System Settings → Privacy & Security → scroll down → "Open anyway".
+
+Windows
+-------
+
+Option A — easiest:
+  Place `windows-install.bat` next to `Monkey.msi`, double-click the .bat.
+  It removes the Mark-of-the-Web and launches the installer.
+
+Option B — manual:
+  1. Right-click Monkey.msi → Properties → check "Unblock" at the bottom → OK.
+  2. Double-click Monkey.msi.
+  3. If SmartScreen still appears: "More info" → "Run anyway".
+
+Linux
+-----
+
+  chmod +x Monkey-*.AppImage
+  ./Monkey-*.AppImage
+
+No bypass needed — Linux does not gate unsigned binaries.
+
+Why no signature?
+-----------------
+
+Code signing certs cost money and renew yearly. Indie projects can't
+justify the recurring cost. The trust model here is: read the source,
+build it yourself, or trust the GitHub release artifacts (built in public
+CI from a public branch). Same model as most open-source desktop apps.

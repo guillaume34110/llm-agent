@@ -1,0 +1,3 @@
+progsoft.eu, ai.progsoft.eu {
+	reverse_proxy app:3000
+}

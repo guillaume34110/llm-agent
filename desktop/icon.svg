@@ -1,0 +1,32 @@
+<svg width="1024" height="1024" viewBox="0 0 1024 1024" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <!-- Background -->
+  <rect width="1024" height="1024" fill="#0D1510"/>
+
+  <!-- Monkey scaled from 40x40 to ~750x750, centered at (512,512) -->
+  <g transform="translate(137,112) scale(18.75)">
+    <!-- Ears outer -->
+    <ellipse cx="7"  cy="22" rx="5.5" ry="6.5" fill="#7A5C32"/>
+    <ellipse cx="33" cy="22" rx="5.5" ry="6.5" fill="#7A5C32"/>
+    <!-- Ears inner -->
+    <ellipse cx="7"  cy="22" rx="3"   ry="4"   fill="#A8823C"/>
+    <ellipse cx="33" cy="22" rx="3"   ry="4"   fill="#A8823C"/>
+    <!-- Head -->
+    <ellipse cx="20" cy="20" rx="13"  ry="13.5" fill="#856538"/>
+    <!-- Muzzle -->
+    <ellipse cx="20" cy="24" rx="8"   ry="7"    fill="#BF9A55"/>
+    <!-- Eye whites -->
+    <ellipse cx="15.5" cy="17.5" rx="3"   ry="3.2" fill="white"/>
+    <ellipse cx="24.5" cy="17.5" rx="3"   ry="3.2" fill="white"/>
+    <!-- Pupils -->
+    <circle  cx="16"   cy="18"   r="1.8" fill="#1A2218"/>
+    <circle  cx="25"   cy="18"   r="1.8" fill="#1A2218"/>
+    <!-- Highlights -->
+    <circle  cx="16.6" cy="17.3" r="0.7" fill="white"/>
+    <circle  cx="25.6" cy="17.3" r="0.7" fill="white"/>
+    <!-- Nostrils -->
+    <ellipse cx="18"   cy="23"   rx="1.2" ry="0.8" fill="#70532A"/>
+    <ellipse cx="22"   cy="23"   rx="1.2" ry="0.8" fill="#70532A"/>
+    <!-- Smile -->
+    <path d="M16 26 Q20 29.5 24 26" stroke="#70532A" stroke-width="1.5" stroke-linecap="round" fill="none"/>
+  </g>
+</svg>

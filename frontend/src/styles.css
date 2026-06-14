@@ -1,0 +1,116 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=JetBrains+Mono:wght@400;700&family=Nunito:wght@400;500;600;700;800;900&family=Nunito+Sans:wght@400;500;600;700&display=swap');
+@import "tailwindcss";
+
+:root {
+  --bg:          oklch(9% 0.022 148);
+  --bg2:         oklch(11.5% 0.026 148);
+  --bg3:         oklch(14% 0.028 148);
+  --bg4:         oklch(17% 0.03 148);
+  --border:      oklch(22% 0.03 148);
+  --green:       oklch(62% 0.17 148);
+  --green-dim:   oklch(50% 0.13 148);
+  --green-glow:  oklch(62% 0.17 148 / 0.18);
+  --amber:       oklch(72% 0.14 82);
+  --text:        oklch(90% 0.012 148);
+  --text-muted:  oklch(58% 0.02 148);
+  --text-dim:    oklch(42% 0.02 148);
+  --user-bubble: oklch(48% 0.14 148);
+  --radius-sm:   8px;
+  --radius:      12px;
+  --radius-lg:   18px;
+  --danger:      oklch(62% 0.19 25);
+  --danger-soft: oklch(45% 0.16 25 / 0.15);
+  --ring:        var(--green);
+  --shadow-card: 0 2px 8px oklch(0% 0 0 / 0.18);
+  --shadow-pop:  0 16px 40px oklch(4% 0.02 148 / 0.5);
+}
+
+@theme inline {
+  --color-bg: var(--bg);
+  --color-bg2: var(--bg2);
+  --color-bg3: var(--bg3);
+  --color-bg4: var(--bg4);
+  --color-border: var(--border);
+  --color-fg: var(--text);
+  --color-fg-muted: var(--text-muted);
+  --color-fg-dim: var(--text-dim);
+  --color-primary: var(--green);
+  --color-primary-dim: var(--green-dim);
+  --color-danger: var(--danger);
+  --color-amber: var(--amber);
+  --radius-sm: 8px;
+  --radius-md: 12px;
+  --radius-lg: 18px;
+}
+
+button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+}
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
+}
+
+html, body, #root {
+  height: 100%;
+  overflow: hidden;
+  background: var(--bg);
+  color: var(--text);
+  font-family: 'Nunito', sans-serif;
+}
+
+::-webkit-scrollbar { width: 5px; height: 5px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--border); border-radius: 99px; }
+
+@keyframes bounce-dot {
+  0%, 80%, 100% { transform: translateY(0); }
+  40%           { transform: translateY(-6px); }
+}
+.dot {
+  width: 7px; height: 7px; border-radius: 50%;
+  background: var(--green); display: inline-block;
+  animation: bounce-dot 1.2s infinite;
+}
+.dot:nth-child(2) { animation-delay: .15s; }
+.dot:nth-child(3) { animation-delay: .3s; }
+
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(8px); }
+  to   { opacity: 1; transform: none; }
+}
+.fade-in { animation: fadeIn .25s ease forwards; }
+
+@keyframes blink {
+  0%, 100% { opacity: 1; }
+  50%       { opacity: 0; }
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50%       { opacity: 0.4; }
+}
+
+@keyframes float {
+  0%, 100% { transform: translateY(0); }
+  50%       { transform: translateY(5px); }
+}
+
+@keyframes slideUp {
+  from { opacity: 0; transform: translateY(28px); }
+  to   { opacity: 1; transform: none; }
+}
+
+@keyframes glowBreathe {
+  0%, 100% { opacity: .55; transform: translate(-50%, -60%) scale(1); }
+  50%       { opacity: .9;  transform: translate(-50%, -60%) scale(1.1); }
+}
+
+@keyframes borderSpin {
+  to { --angle: 360deg; }
+}
+
+@keyframes shimmerMove {
+  0%   { background-position: -200% center; }
+  100% { background-position:  200% center; }
+}

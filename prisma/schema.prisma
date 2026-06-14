@@ -1,0 +1,548 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// Local-first architecture (CLAUDE.md invariant).
+// Server stores ONLY: auth, model catalog, desktop releases, P2P presence
+// directory + ACL. NEVER: prompts, responses, embeddings, conversations,
+// memory.
+// Demonetization (2026-05-25): no billing, no cosmetics catalog, no credits,
+// no rewards, no leaderboards. Cosmetics are bundled client-side and free.
+// ─────────────────────────────────────────────────────────────────────────
+
+model User {
+  id                    String                   @id @default(uuid())
+  email                 String                   @unique
+  password              String
+  role                  String                   @default("user")
+  mustChangePassword    Boolean                  @default(false)
+  createdAt             DateTime                 @default(now())
+  updatedAt             DateTime                 @updatedAt
+  passwordResetTokens   PasswordResetToken[]
+  providerRegistrations ProviderRegistration[]
+  attestations          ProviderAttestation[]
+  publicProfile         PublicProfile?
+  sharedConversations   SharedConversation[]
+  aclAsProvider         ProviderAcl[]            @relation("AclProvider")
+  aclAsFriend           ProviderAcl[]            @relation("AclFriend")
+}
+
+model PasswordResetToken {
+  id        String   @id @default(uuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  token     String   @unique
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+}
+
+model ModelMeta {
+  id                     String   @id
+  name                   String
+  category               String
+  imageCostCents         Int?
+  contextLength          Int?
+  tokensPerSecond        Float?
+  supportsTools          Boolean  @default(true)
+  supportsVision         Boolean  @default(false)
+  supportsAudioInput     Boolean  @default(false)
+  supportsImageOutput    Boolean  @default(false)
+  supportsAudioOutput    Boolean  @default(false)
+  musicCostCents         Int?
+  supportsVideoOutput    Boolean  @default(false)
+  videoCostCentsPerSec   Int?
+  enabled                Boolean  @default(true)
+  icon                   String?
+  weightDigest           String?
+  family                 String?
+  sizeB                  Float?
+  activeB                Float?
+  task                   String?
+  minVramGb              Int?
+  license                String?
+  updatedAt              DateTime @updatedAt
+}
+
+model AppRelease {
+  id        String   @id @default(uuid())
+  platform  String   @unique
+  version   String
+  filename  String
+  data      Bytes
+  sha256    String
+  size      Int
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// P2P presence — friends-only directory. No public marketplace.
+// Server stores routing metadata ONLY (modelId, networkAddr, noisePubkey).
+// NEVER prompts, NEVER responses, NEVER who routes to whom per request.
+// ─────────────────────────────────────────────────────────────────────────
+
+model ProviderRegistration {
+  id           String   @id @default(uuid())
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId       String
+  // Stable per-install identifier (Tauri app data dir uuid). Lets one user
+  // host the same model on multiple machines without slot collision.
+  deviceId     String   @default("legacy")
+  modelId      String
+  // Denormalized from ModelMeta.task. Lets matchmaker filter "any provider
+  // serving OCR" without a join. Source of truth remains ModelMeta.task.
+  // Nullable for legacy rows; new rows always populated by provider-runtime.
+  task         String?
+  modelDigest  String?
+  weightDigest String?
+  networkAddr  String   // host:port for Noise XK direct connect
+  noisePubkey  String   // base64 Ed25519/X25519 pubkey
+  attested     Boolean  @default(false)
+  lastSeenAt   DateTime @default(now())
+  createdAt   DateTime @default(now())
+
+  @@unique([userId, deviceId, modelId])
+  @@index([userId, lastSeenAt])
+  @@index([modelId, lastSeenAt])
+  @@index([task, lastSeenAt])
+  @@index([lastSeenAt])
+}
+
+// Per-friend ACL. Row exists = friend is allowed to route to me. Default OFF.
+// Toggle ON = INSERT. Toggle OFF = DELETE. Friendship must exist first.
+model ProviderAcl {
+  id         String   @id @default(uuid())
+  provider   User     @relation("AclProvider", fields: [providerId], references: [id], onDelete: Cascade)
+  providerId String
+  friend     User     @relation("AclFriend", fields: [friendId], references: [id], onDelete: Cascade)
+  friendId   String
+  createdAt  DateTime @default(now())
+
+  @@unique([providerId, friendId])
+  @@index([friendId])
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// Attestation — signed runtime hash + canary sampling. Friend-only but
+// still enforced (compromised friend defence).
+// ─────────────────────────────────────────────────────────────────────────
+model ProviderAttestation {
+  id            String   @id @default(uuid())
+  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId        String
+  runtimeHash   String
+  runtimeSig    String
+  attestedAt    DateTime @default(now())
+  expiresAt     DateTime
+
+  @@index([userId, attestedAt])
+}
+
+model AttestationSample {
+  id             String   @id @default(uuid())
+  providerId     String
+  modelId        String?
+  canaryHash     String
+  responseHash   String
+  valid          Boolean
+  createdAt      DateTime @default(now())
+
+  @@index([providerId, createdAt])
+  @@index([modelId, canaryHash])
+}
+
+// Operator-curated canary reference output per (canary, model).
+model CanaryReference {
+  canaryHash   String
+  modelId      String
+  responseHash String
+  note         String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@id([canaryHash, modelId])
+  @@index([modelId])
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// Social — opt-in public profiles + opaque shared-conversation blobs.
+// Server NEVER decrypts the blob; the symmetric key lives in the URL
+// fragment (#key=...) on the recipient side.
+// ─────────────────────────────────────────────────────────────────────────
+model PublicProfile {
+  userId            String   @id
+  user              User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  handle            String   @unique
+  bio               String?
+  avatarCosmeticId  String?
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+}
+
+model SharedConversation {
+  id            String   @id @default(uuid())
+  owner         User     @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  ownerId       String
+  encryptedBlob Bytes
+  createdAt     DateTime @default(now())
+
+  @@index([ownerId, createdAt])
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// Agent-mediated social — inquiry, wall, cluster, project rooms.
+// All payloads chiffrés client-side or constrained by closed JSON-schema.
+// Server stores: routing meta + structured answers (yes/no/fit) + opaque blobs.
+// ─────────────────────────────────────────────────────────────────────────
+
+model UserBlock {
+  id          String   @id @default(uuid())
+  blockerId   String
+  blockedId   String
+  reason      String?
+  createdAt   DateTime @default(now())
+  @@unique([blockerId, blockedId])
+  @@index([blockedId])
+}
+
+model UserSignal {
+  id          String   @id @default(uuid())
+  reporterId  String
+  targetUserId String
+  targetKind  String
+  targetId    String
+  reason      String
+  note        String?
+  createdAt   DateTime @default(now())
+  reviewedAt  DateTime?
+  reviewerId  String?
+  outcome     String?
+  @@index([targetUserId, createdAt])
+  @@index([reviewedAt])
+}
+
+model UserInquirySettings {
+  userId            String   @id
+  acceptInquiries   Boolean  @default(false)
+  acceptedModes     String[] @default([])
+  acceptedTags      String[] @default([])
+  maxPerDay         Int      @default(20)
+  responseRate30d   Float    @default(1.0)
+  updatedAt         DateTime @updatedAt
+}
+
+model InquiryRequest {
+  id            String   @id @default(uuid())
+  initiatorId   String
+  mode          String
+  queryHash     String
+  filters       Json
+  fanout        Int
+  costCents     Int
+  status        String   @default("open")
+  createdAt     DateTime @default(now())
+  expiresAt     DateTime
+  responses     InquiryResponse[]
+  @@index([initiatorId, createdAt])
+  @@index([status, expiresAt])
+}
+
+model InquiryResponse {
+  id            String   @id @default(uuid())
+  inquiryId     String
+  inquiry       InquiryRequest @relation(fields: [inquiryId], references: [id], onDelete: Cascade)
+  responderId   String
+  answer        Json
+  rationaleEnc  Bytes?
+  guardPassed   Boolean  @default(true)
+  agentSig      Bytes?
+  createdAt     DateTime @default(now())
+  @@unique([inquiryId, responderId])
+  @@index([responderId, createdAt])
+}
+
+model MatchSession {
+  id            String   @id @default(uuid())
+  inquiryId     String
+  initiatorId   String
+  responderId   String
+  status        String   @default("open")
+  createdAt     DateTime @default(now())
+  expiresAt     DateTime
+  closedAt      DateTime?
+  closedReason  String?
+  turns         MatchTurn[]
+  @@unique([inquiryId, responderId])
+  @@index([initiatorId, status])
+  @@index([responderId, status])
+  @@index([status, expiresAt])
+}
+
+model MatchTurn {
+  id            String   @id @default(uuid())
+  sessionId     String
+  session       MatchSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  turnIndex     Int
+  roleA         Boolean
+  ciphertext    Bytes
+  createdAt     DateTime @default(now())
+  @@unique([sessionId, turnIndex])
+  @@index([sessionId, createdAt])
+}
+
+model MatchReport {
+  id            String   @id @default(uuid())
+  sessionId     String   @unique
+  ciphertext    Bytes
+  agentSigA     Bytes
+  agentSigB     Bytes?
+  ackedAt       DateTime?
+  createdAt     DateTime @default(now())
+  @@index([createdAt])
+}
+
+model MatchAnonId {
+  id            String   @id @default(uuid())
+  sessionId     String
+  userId        String
+  anonId        String   @unique
+  roleA         Boolean
+  createdAt     DateTime @default(now())
+  expiresAt     DateTime
+  @@unique([sessionId, userId])
+  @@index([expiresAt])
+}
+
+model Friendship {
+  id            String   @id @default(uuid())
+  userId        String
+  friendId      String
+  viaSessionId  String?
+  createdAt     DateTime @default(now())
+  @@unique([userId, friendId])
+  @@index([userId])
+}
+
+model FriendInvite {
+  id          String    @id @default(uuid())
+  token       String    @unique
+  fromUserId  String
+  expiresAt   DateTime
+  usedAt      DateTime?
+  usedByUserId String?
+  createdAt   DateTime  @default(now())
+  @@index([fromUserId, createdAt])
+  @@index([expiresAt])
+}
+
+model MatchConsent {
+  id            String   @id @default(uuid())
+  sessionId     String
+  userId        String
+  decision      String
+  createdAt     DateTime @default(now())
+  @@unique([sessionId, userId])
+  @@index([sessionId])
+}
+
+model GroupThread {
+  id            String   @id @default(uuid())
+  ownerId       String
+  title         String
+  createdAt     DateTime @default(now())
+  members       GroupMember[]
+  messages      GroupMessage[]
+  @@index([ownerId])
+}
+
+model GroupMember {
+  id            String   @id @default(uuid())
+  threadId      String
+  thread        GroupThread @relation(fields: [threadId], references: [id], onDelete: Cascade)
+  userId        String
+  wrappedKey    Bytes
+  joinedAt      DateTime @default(now())
+  @@unique([threadId, userId])
+  @@index([userId])
+}
+
+model GroupMessage {
+  id            String   @id @default(uuid())
+  threadId      String
+  thread        GroupThread @relation(fields: [threadId], references: [id], onDelete: Cascade)
+  senderId      String
+  ciphertext    Bytes
+  createdAt     DateTime @default(now())
+  @@index([threadId, createdAt])
+}
+
+model GroupKbBundle {
+  id            String   @id @default(uuid())
+  threadId      String
+  ownerId       String
+  modelId       String
+  ciphertext    Bytes
+  expiresAt     DateTime
+  createdAt     DateTime @default(now())
+  @@index([threadId, expiresAt])
+  @@index([ownerId])
+}
+
+model ForgeAccount {
+  id            String   @id @default(uuid())
+  userId        String
+  provider      String
+  externalId    String
+  handle        String
+  accessTokenEnc Bytes
+  refreshTokenEnc Bytes?
+  scope         String
+  expiresAt     DateTime?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+  @@unique([userId, provider])
+  @@index([userId])
+}
+
+model AgentCert {
+  id            String   @id @default(uuid())
+  fingerprint   String   @unique
+  pubkey        Bytes
+  status        String   @default("active")
+  revokedAt     DateTime?
+  revokedReason String?
+  signalCount   Int      @default(0)
+  createdAt     DateTime @default(now())
+  @@index([status])
+}
+
+model BroadcastKey {
+  id            String   @id @default(uuid())
+  tag           String
+  wrappedKey    Bytes
+  generation    Int
+  createdAt     DateTime @default(now())
+  rotatedAt     DateTime?
+  @@unique([tag, generation])
+  @@index([tag, createdAt])
+}
+
+model WallPost {
+  id            String   @id @default(uuid())
+  authorId      String
+  authorPseudonymForTag String
+  tag           String
+  mode          String
+  schemaVersion String
+  payloadEnc    Bytes
+  keyGen        Int
+  filters       Json
+  guardPassed   Boolean  @default(true)
+  createdAt     DateTime @default(now())
+  expiresAt     DateTime
+  replies       WallReply[]
+  @@index([tag, createdAt])
+  @@index([authorId])
+  @@index([expiresAt])
+}
+
+model WallReply {
+  id            String   @id @default(uuid())
+  postId        String
+  post          WallPost @relation(fields: [postId], references: [id], onDelete: Cascade)
+  responderId   String
+  responderPseudonymForTag String
+  answer        Json
+  rationaleEnc  Bytes?
+  guardPassed   Boolean  @default(true)
+  agentSig      Bytes?
+  createdAt     DateTime @default(now())
+  @@unique([postId, responderId])
+  @@index([postId, createdAt])
+}
+
+model TagPseudonym {
+  userId        String
+  tag           String
+  pseudonym     String   @unique
+  createdAt     DateTime @default(now())
+  @@id([userId, tag])
+  @@index([tag])
+}
+
+model ClusterDraft {
+  id            String   @id @default(uuid())
+  postId        String
+  proposedAt    DateTime @default(now())
+  expiresAt     DateTime
+  status        String   @default("pending")
+  resultingRoomId String?  @unique
+  members       ClusterMember[]
+  @@index([postId])
+  @@index([status, expiresAt])
+}
+
+model ClusterMember {
+  clusterId     String
+  cluster       ClusterDraft @relation(fields: [clusterId], references: [id], onDelete: Cascade)
+  userId        String
+  vote          String   @default("pending")
+  votedAt       DateTime?
+  @@id([clusterId, userId])
+}
+
+model ProjectRoom {
+  id              String   @id @default(uuid())
+  name            String
+  createdFromClusterId String? @unique
+  expiresAt       DateTime?
+  createdAt       DateTime @default(now())
+  archivedAt      DateTime?
+  lastActivityAt  DateTime @default(now())
+  members         ProjectMember[]
+  docs            ProjectDoc[]
+  channelStates   ProjectChannelState[]
+  @@index([archivedAt])
+  @@index([lastActivityAt])
+}
+
+model ProjectMember {
+  roomId          String
+  room            ProjectRoom @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  userId          String
+  role            String      @default("contributor")
+  joinedAt        DateTime    @default(now())
+  leftAt          DateTime?
+  @@id([roomId, userId])
+  @@index([userId])
+}
+
+model ProjectChannelState {
+  roomId          String
+  room            ProjectRoom @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  userId          String
+  acceptHumanChat Boolean  @default(false)
+  updatedAt       DateTime @updatedAt
+  @@id([roomId, userId])
+}
+
+model ProjectDoc {
+  id              String   @id @default(uuid())
+  roomId          String
+  room            ProjectRoom @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  uploaderId      String
+  ciphertext      Bytes
+  mimeType        String
+  sizeBytes       Int
+  keyGen          Int      @default(1)
+  createdAt       DateTime @default(now())
+  @@index([roomId, createdAt])
+}

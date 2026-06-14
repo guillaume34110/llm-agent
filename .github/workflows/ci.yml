@@ -1,0 +1,77 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  validate:
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Setup Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Setup Rust stable
+        uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          toolchain: stable
+
+      - name: Install Linux deps for Tauri check
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev \
+            libappindicator3-dev \
+            librsvg2-dev \
+            patchelf \
+            libssl-dev \
+            libgtk-3-dev
+
+      - name: Install root deps
+        run: npm ci
+
+      - name: Server build
+        run: npm run build
+
+      - name: Server tests
+        run: npm test -- --runInBand
+
+      - name: Root dependency audit
+        run: npm audit --omit=dev --audit-level=moderate
+
+      - name: Install desktop deps
+        working-directory: desktop
+        run: npm ci
+
+      - name: Desktop build
+        working-directory: desktop
+        run: npm run build
+
+      - name: Desktop tests
+        working-directory: desktop
+        run: npm test
+
+      - name: Desktop dependency audit
+        working-directory: desktop
+        run: npm audit --omit=dev --audit-level=moderate
+
+      - name: Tauri Rust check
+        working-directory: desktop/src-tauri
+        run: cargo check
+
+      - name: Install monkey test deps
+        run: pip install -r monkey/requirements.txt
+
+      - name: Python tests
+        run: pytest -q

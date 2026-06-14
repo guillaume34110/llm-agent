@@ -1,0 +1,105 @@
+# .gitignore — improved, cross-platform, language-aware
+# See https://github.com/github/gitignore for language-specific examples
+
+# macOS
+.DS_Store
+
+# Windows
+Thumbs.db
+desktop.ini
+ehthumbs.db
+
+# Node
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+.pnp/
+.pnp.js
+
+# Prisma dev database
+prisma/dev.db
+prisma/dev.db-journal
+
+# Build / output
+dist/
+build/
+out/
+.next/
+.nuxt/
+public/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.env
+.env.local
+.env.*.local
+!.env.example
+.venv/
+venv/
+env/
+pip-wheel-metadata/
+*.egg-info/
+.eggs/
+.pytest_cache/
+.mypy_cache/
+coverage/
+htmlcov/
+.coverage
+
+# Go
+bin/
+pkg/
+vendor/
+
+# Java / JVM
+target/
+*.class
+*.jar
+*.war
+*.ear
+
+# Rust
+target/
+
+# IDEs / editors
+.vscode/
+.idea/
+*.iml
+*.ipr
+*.iws
+*.sublime*
+
+# Logs and caches
+*.log
+.cache/
+*.tmp
+
+# Secrets / keys
+*.pem
+*.key
+secrets.yml
+
+# Misc
+*.swp
+*~
+
+# Tauri sidecar binaries
+desktop/src-tauri/binaries/monkey-*
+
+# Playwright MCP output
+.playwright-mcp/
+
+# End
+
+# public mirror hardening
+*.db
+*.sqlite
+dev.db
+prisma/dev.db
+.claude/
+desktop/src-tauri/binaries/
+.DS_Store
