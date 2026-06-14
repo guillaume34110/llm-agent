@@ -164,3 +164,80 @@ export async function* agentStream(opts: {
     try { reader.releaseLock(); } catch {}
   }
 }
+
+/**
+ * Clean single-turn completion for the 8-bit maker's sprite/map AI.
+ *
+ * Deliberately bypasses agentStream / the agent SYSTEM_PROMPT / tools: those
+ * corrupt structured output (the intent router fires generate_image on "draw…"
+ * prompts and the prose-oriented system prompt fights the grid/DSL format).
+ * Hits the sidecar's /game/maker/complete with ONLY a terse author spec + the
+ * user prompt, returns the raw model text. Caller owns all parsing/validation.
+ * Same local-backend resolution as agentStream (bundled llama-server vs Ollama).
+ */
+export async function makerComplete(opts: {
+  system: string;
+  prompt: string;
+  modelId?: string;
+  temperature?: number;
+  providerMode?: 'local' | 'friend';
+  providerUserId?: string;
+  signal?: AbortSignal;
+}): Promise<string> {
+  const body: Record<string, unknown> = {
+    system: opts.system,
+    prompt: opts.prompt,
+    model_id: opts.modelId,
+  };
+  if (typeof opts.temperature === 'number') body.temperature = opts.temperature;
+  if (opts.providerMode === 'local' || opts.providerMode === 'friend') {
+    body.provider_mode = opts.providerMode;
+  }
+  if (typeof opts.providerUserId === 'string' && opts.providerUserId.trim()) {
+    body.provider_user_id = opts.providerUserId.trim();
+  }
+
+  let llama: LlamaInfo | null = null;
+  try {
+    llama = await invoke<LlamaInfo | null>('llama_runtime_info');
+  } catch {}
+  const catalogEntry = opts.modelId ? CATALOG.find(m => m.id === opts.modelId) : undefined;
+  const isOllamaBacked = catalogEntry?.backend === 'ollama';
+  if (
+    opts.providerMode === 'local'
+    && !getLocalBusy()
+    && typeof opts.modelId === 'string'
+    && CATALOG.some(m => m.id === opts.modelId)
+    && (isOllamaBacked || !llama || !llama.baseUrl)
+  ) {
+    try {
+      await activateLocalRuntime({ preferModelId: opts.modelId });
+      llama = await invoke<LlamaInfo | null>('llama_runtime_info').catch(() => null);
+    } catch (e: any) {
+      throw new Error(`local runtime start failed: ${e?.message || e}`);
+    }
+  }
+  if (!isOllamaBacked && llama && llama.baseUrl) {
+    body.llama_base_url = llama.baseUrl;
+    if (llama.bearerToken) body.llama_bearer_token = llama.bearerToken;
+  }
+
+  let res: Response;
+  try {
+    res = await tauriFetch(`${SIDECAR_BASE}/game/maker/complete`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+      signal: opts.signal,
+      connectTimeout: 30_000,
+    } as any);
+  } catch (e: any) {
+    throw new Error(`sidecar fetch failed: ${e?.message || e}`);
+  }
+  if (!res.ok) {
+    const txt = await res.text().catch(() => '');
+    throw new Error(`sidecar HTTP ${res.status}: ${txt.slice(0, 200)}`);
+  }
+  const data = await res.json().catch(() => ({} as any));
+  return (data?.text || '') as string;
+}

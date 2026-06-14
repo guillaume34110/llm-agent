@@ -382,7 +382,7 @@ function Nav({ lang, onLangChange, onSignIn, onDownload, downloadAvailable }: {
             {s[k]}
           </a>
         ))}
-        <a href="https://github.com/guillaume34110/llm-agent" target="_blank" rel="noopener noreferrer" style={{ color: 'var(--text-muted)', fontSize: 13.5, fontWeight: 600, textDecoration: 'none' }}>
+        <a href="https://github.com/guillaume34110/llm-agent-" target="_blank" rel="noopener noreferrer" style={{ color: 'var(--text-muted)', fontSize: 13.5, fontWeight: 600, textDecoration: 'none' }}>
           {s.github} ↗
         </a>
         <button onClick={onSignIn} style={{ background: 'transparent', border: 'none', color: 'var(--text-dim)', fontSize: 13.5, fontWeight: 600, cursor: 'pointer', padding: 0, fontFamily: 'inherit' }}>
@@ -635,7 +635,7 @@ function InstallGuide({ lang, defaultTab }: { lang: Lang; defaultTab: Platform }
         {/* Build from source strip */}
         <AnimIn delay={120}><div style={{ padding: '14px 20px', background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: 10, display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 12 }}>
           <span style={{ fontSize: 13.5, color: 'var(--text-muted)', fontWeight: 500 }}>{s.buildLabel}</span>
-          <a href="https://github.com/guillaume34110/llm-agent" target="_blank" rel="noopener noreferrer" style={{ color: 'var(--green)', fontSize: 13.5, fontWeight: 700, textDecoration: 'none', display: 'flex', alignItems: 'center', gap: 5 }}>
+          <a href="https://github.com/guillaume34110/llm-agent-" target="_blank" rel="noopener noreferrer" style={{ color: 'var(--green)', fontSize: 13.5, fontWeight: 700, textDecoration: 'none', display: 'flex', alignItems: 'center', gap: 5 }}>
             {s.buildLink}
           </a>
         </div></AnimIn>
@@ -697,7 +697,7 @@ function PrivacySection({ lang, os, available, loading, onDownload }: {
                 <Download size={16} />
                 {loading ? '…' : canDownload ? sh.downloadBtn(PLATFORM_LABELS[os]) : sh.unavailable}
               </button>
-              <a href="https://github.com/guillaume34110/llm-agent" target="_blank" rel="noopener noreferrer" style={{ display: 'inline-flex', alignItems: 'center', gap: 8, background: 'transparent', color: 'var(--text-muted)', padding: '14px 28px', borderRadius: 10, fontSize: 15, fontWeight: 700, border: '1px solid var(--border)', textDecoration: 'none' }}>
+              <a href="https://github.com/guillaume34110/llm-agent-" target="_blank" rel="noopener noreferrer" style={{ display: 'inline-flex', alignItems: 'center', gap: 8, background: 'transparent', color: 'var(--text-muted)', padding: '14px 28px', borderRadius: 10, fontSize: 15, fontWeight: 700, border: '1px solid var(--border)', textDecoration: 'none' }}>
                 {s.ctaGithub}
               </a>
             </div>
@@ -721,8 +721,8 @@ function SiteFooter({ lang }: { lang: Lang }) {
       <div style={{ display: 'flex', gap: 20 }}>
         {[
           { label: s.privacy, href: '/privacy' },
-          { label: s.github, href: 'https://github.com/guillaume34110/llm-agent' },
-          { label: s.license, href: 'https://github.com/guillaume34110/llm-agent/blob/main/LICENSE' },
+          { label: s.github, href: 'https://github.com/guillaume34110/llm-agent-' },
+          { label: s.license, href: 'https://github.com/guillaume34110/llm-agent-/blob/main/LICENSE' },
         ].map(link => (
           <a key={link.label} href={link.href} target="_blank" rel="noopener noreferrer" style={{ color: 'var(--text-dim)', textDecoration: 'none' }}>
             {link.label}
@@ -772,7 +772,7 @@ export default function Landing({ onSignIn }: LandingProps) {
   };
 
   const handleGithub = () => {
-    window.open('https://github.com/guillaume34110/llm-agent', '_blank', 'noopener,noreferrer');
+    window.open('https://github.com/guillaume34110/llm-agent-', '_blank', 'noopener,noreferrer');
   };
 
   return (

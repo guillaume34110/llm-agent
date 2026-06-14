@@ -3,7 +3,7 @@ Monkey — install instructions (unsigned indie build)
 
 Monkey ships without Apple/Microsoft code-signing certificates (those cost
 $99-$500/year and would just pass cost onto users). The binary is open
-source: read it at https://github.com/guillaume34110/llm-agent
+source: read it at https://github.com/guillaume34110/llm-agent-
 
 If your OS warns "damaged" / "unknown publisher", that is the standard
 warning for any unsigned app. Use the helpers below to bypass it once.

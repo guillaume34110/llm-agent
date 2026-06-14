@@ -203,4 +203,4 @@ export interface AgentPlan {
 }
 
 export type Screen = 'login' | 'agent';
-export type AgentView = 'inbox' | 'chats' | 'tasks' | 'people' | 'knowledge' | 'background' | 'chatbots' | 'settings';
+export type AgentView = 'inbox' | 'chats' | 'tasks' | 'people' | 'knowledge' | 'background' | 'chatbots' | 'maker' | 'settings';

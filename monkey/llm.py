@@ -82,7 +82,7 @@ def _auth_headers() -> dict[str, str]:
     }
 
 
-def _build_payload(messages: list[dict], model_id: str, tools: list[dict] | None, force_tool: bool) -> dict:
+def _build_payload(messages: list[dict], model_id: str, tools: list[dict] | None, force_tool: bool, temperature: float | None = None) -> dict:
     # Cap output. Default llama-server / Ollama use n_predict=-1 (until ctx limit). A
     # broken GGUF that emits garbage tokens forever otherwise runs the full 32k window,
     # which exceeds tauri-plugin-http's read timeout and surfaces as "error decoding
@@ -91,6 +91,10 @@ def _build_payload(messages: list[dict], model_id: str, tools: list[dict] | None
     payload["options"] = {"num_ctx": _max_ctx_for(model_id)}
     if tools:
         payload["tools"] = tools
+    # Caller-supplied sampler temperature (maker grid/DSL path). Ignored on
+    # force_tool turns, which pin temp=0 below for deterministic JSON.
+    if temperature is not None and not (force_tool and tools):
+        payload["temperature"] = temperature
     if force_tool and tools:
         payload["tool_choice"] = "required"
         # Deterministic sampler for tool turns. Default temp=0.8/top_p=0.9 lets small
@@ -578,7 +582,7 @@ def _chat_ollama_native_schema(messages: list[dict], ollama_tag: str, tool: dict
     }
 
 
-def _chat_ollama(messages: list[dict], model_id: str, tools: list[dict] | None, force_tool: bool) -> dict:
+def _chat_ollama(messages: list[dict], model_id: str, tools: list[dict] | None, force_tool: bool, temperature: float | None = None) -> dict:
     """Call local Ollama. No auth, no billing.
 
     Routing:
@@ -624,7 +628,7 @@ def _chat_ollama(messages: list[dict], model_id: str, tools: list[dict] | None, 
                     continue
                 raise
 
-        payload = _build_payload(messages, tag, tools, force_tool)
+        payload = _build_payload(messages, tag, tools, force_tool, temperature)
         _debug_dump("ollama_oai_request", {"tag": tag, "force_tool": force_tool, "payload": payload})
         resp = _post_oai(payload)
         if resp.status_code == 404:
@@ -759,7 +763,7 @@ def _chat_bundled_schema(messages: list[dict], base_url: str, bearer_token: str,
     }
 
 
-def _chat_bundled(messages: list[dict], base_url: str, bearer_token: str, tools: list[dict] | None, force_tool: bool) -> dict:
+def _chat_bundled(messages: list[dict], base_url: str, bearer_token: str, tools: list[dict] | None, force_tool: bool, temperature: float | None = None) -> dict:
     """Call the Tauri-bundled llama-server (OpenAI-compatible). One model loaded, model_id ignored.
 
     Routing:
@@ -779,7 +783,7 @@ def _chat_bundled(messages: list[dict], base_url: str, bearer_token: str, tools:
             if "lacks json_schema" not in str(e):
                 raise
     url = base_url.rstrip("/") + "/v1/chat/completions"
-    payload = _build_payload(messages, "loaded", tools, force_tool)
+    payload = _build_payload(messages, "loaded", tools, force_tool, temperature)
     headers = {"Content-Type": "application/json"}
     if bearer_token:
         headers["Authorization"] = f"Bearer {bearer_token}"
@@ -841,7 +845,7 @@ def _chat_bundled(messages: list[dict], base_url: str, bearer_token: str, tools:
     }
 
 
-def chat(messages: list[dict], model_id: str | None = None, tools: list[dict] | None = None, force_tool: bool = False, provider_mode: str | None = None, provider_user_id: str | None = None, llama_base_url: str | None = None, llama_bearer_token: str | None = None) -> dict:
+def chat(messages: list[dict], model_id: str | None = None, tools: list[dict] | None = None, force_tool: bool = False, provider_mode: str | None = None, provider_user_id: str | None = None, llama_base_url: str | None = None, llama_bearer_token: str | None = None, temperature: float | None = None) -> dict:
     """Route inference to a custom endpoint, bundled llama-server, local Ollama, or a friend P2P provider.
     Returns { text, tool_calls, usage }.
 
@@ -864,7 +868,7 @@ def chat(messages: list[dict], model_id: str | None = None, tools: list[dict] | 
     if mode == "local":
         if has_bundled:
             try:
-                return _chat_bundled(messages, llama_base_url, llama_bearer_token or "", tools, force_tool)
+                return _chat_bundled(messages, llama_base_url, llama_bearer_token or "", tools, force_tool, temperature)
             except RuntimeError as bundled_err:
                 msg = str(bundled_err)
                 # GGUF architecture/tokenizer unsupported by this llama.cpp build
@@ -872,23 +876,23 @@ def chat(messages: list[dict], model_id: str | None = None, tools: list[dict] | 
                 # serves the same model under a translated tag — fall through.
                 if "empty output" in msg or "incompatible" in msg:
                     try:
-                        return _chat_ollama(messages, model_id, tools, force_tool)
+                        return _chat_ollama(messages, model_id, tools, force_tool, temperature)
                     except RuntimeError as ollama_err:
                         raise RuntimeError(f"{bundled_err} | Ollama fallback failed: {ollama_err}") from ollama_err
                 raise
-        return _chat_ollama(messages, model_id, tools, force_tool)
+        return _chat_ollama(messages, model_id, tools, force_tool, temperature)
     if mode == "friend":
         return _chat_p2p(messages, model_id, tools, force_tool, provider_user_id=provider_user_id)
     if has_bundled:
         try:
-            return _chat_bundled(messages, llama_base_url, llama_bearer_token or "", tools, force_tool)
+            return _chat_bundled(messages, llama_base_url, llama_bearer_token or "", tools, force_tool, temperature)
         except RuntimeError as bundled_err:
             try:
                 return _chat_p2p(messages, model_id, tools, force_tool)
             except RuntimeError as p2p_err:
                 raise RuntimeError(f"{bundled_err} | P2P fallback failed: {p2p_err}") from p2p_err
     try:
-        return _chat_ollama(messages, model_id, tools, force_tool)
+        return _chat_ollama(messages, model_id, tools, force_tool, temperature)
     except RuntimeError as ollama_err:
         # Local backend unavailable — try a friend provider. If that also fails, surface
         # both reasons so the user knows whether to install Ollama or wait

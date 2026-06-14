@@ -4,7 +4,7 @@
 # warning, then launches the app for you.
 #
 # Why: Monkey ships unsigned by an indie developer (no $99/year Apple cert).
-# The binary is open source — read it at https://github.com/guillaume34110/llm-agent
+# The binary is open source — read it at https://github.com/guillaume34110/llm-agent-
 # Quarantine bypass is the same thing the Gatekeeper "Open anyway" button does.
 
 set -e

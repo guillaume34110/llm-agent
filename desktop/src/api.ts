@@ -264,6 +264,7 @@ export const api = {
       maxIters?: number;
       numTools?: number;
       game?: string;
+      cart?: string;
     }) => void,
   ): () => void {
     // Local agent loop (Phase E): drive desktop/src/agent/agentStream and
@@ -355,7 +356,7 @@ export const api = {
               onEvent({ event: 'tool_done', name: evt.name, args: evt.args, output: evt.result });
               break;
             case 'game_launch':
-              onEvent({ event: 'game_launch', game: evt.game });
+              onEvent({ event: 'game_launch', game: evt.game, cart: evt.cart });
               break;
             case 'done':
               onEvent({ event: 'done', data: (typeof evt.data === 'string' && evt.data) || assistantBuf, screenshots: evt.screenshots, incomplete: evt.incomplete });
@@ -514,123 +515,7 @@ export const api = {
     if (!res.ok) throw new Error(`rts command HTTP ${res.status}`);
     return res.json();
   },
-
-  // RPG (Monkey Quest). The client owns ALL mechanics (HP, dice, XP, graph,
-  // combat); these calls only fetch LLM-authored narrative content. Each one is
-  // best-effort — the sidecar returns a deterministic fallback when the model is
-  // missing or garbles its reply, so the game never blocks on the LLM.
-  async rpgSetup(
-    theme: string,
-    opts: { modelId?: string; providerMode?: 'local' | 'friend'; providerUserId?: string } = {},
-  ): Promise<RpgSetupResult> {
-    return rpgPost<RpgSetupResult>('/game/rpg/setup', { theme }, opts);
-  },
-
-  async rpgScene(
-    context: string,
-    allowedTags: string[],
-    theme: string | undefined,
-    opts: { modelId?: string; providerMode?: 'local' | 'friend'; providerUserId?: string } = {},
-  ): Promise<RpgSceneResult> {
-    return rpgPost<RpgSceneResult>('/game/rpg/scene', { context, allowed_tags: allowedTags, theme }, opts);
-  },
-
-  async rpgResolve(
-    context: string,
-    outcome: string,
-    theme: string | undefined,
-    opts: { modelId?: string; providerMode?: 'local' | 'friend'; providerUserId?: string } = {},
-  ): Promise<{ narration: string; fallback: boolean }> {
-    return rpgPost('/game/rpg/resolve', { context, outcome, theme }, opts);
-  },
-
-  // Free-text conversation with an NPC. The model voices the NPC and may pick one
-  // effect token from allowedEffects; the client applies all mechanics itself.
-  async rpgDialogue(
-    args: {
-      context: string;
-      npcName: string;
-      npcRole: string;
-      history: Array<{ who: string; text: string }>;
-      playerMessage: string;
-      allowedEffects: string[];
-      theme?: string;
-    },
-    opts: { modelId?: string; providerMode?: 'local' | 'friend'; providerUserId?: string } = {},
-  ): Promise<RpgDialogueResult> {
-    return rpgPost<RpgDialogueResult>('/game/rpg/dialogue', {
-      context: args.context,
-      npc_name: args.npcName,
-      npc_role: args.npcRole,
-      history: args.history,
-      player_message: args.playerMessage,
-      allowed_effects: args.allowedEffects,
-      theme: args.theme,
-    }, opts);
-  },
 };
-
-// Shared POST helper for the RPG endpoints: injects the local llama runtime
-// pointer the same way chessMove does (skip it for Ollama-backed models).
-async function rpgPost<T>(
-  path: string,
-  payload: Record<string, unknown>,
-  opts: { modelId?: string; providerMode?: 'local' | 'friend'; providerUserId?: string; lang?: string },
-): Promise<T> {
-  const body: Record<string, unknown> = {
-    ...payload,
-    model_id: opts.modelId,
-    provider_mode: opts.providerMode,
-    provider_user_id: opts.providerUserId,
-    lang: opts.lang,
-  };
-  let llama: { baseUrl?: string; bearerToken?: string } | null = null;
-  try { llama = await invoke('llama_runtime_info'); } catch {}
-  const catalogEntry = opts.modelId ? CATALOG.find(m => m.id === opts.modelId) : undefined;
-  const isOllamaBacked = catalogEntry?.backend === 'ollama';
-  if (!isOllamaBacked && llama && llama.baseUrl) {
-    body.llama_base_url = llama.baseUrl;
-    if (llama.bearerToken) body.llama_bearer_token = llama.bearerToken;
-  }
-  const res = await fetch(`${baseUrl}${path}`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
-  });
-  if (!res.ok) throw new Error(`rpg ${path} HTTP ${res.status}`);
-  return res.json();
-}
-
-export interface RpgSetupLocation { name: string; kind: string; blurb: string; }
-export interface RpgSetupHero { className: string; blurb: string; }
-// An LLM-themed explorer club: a world-flavoured name (+ blurb) bound to one of the
-// three fixed archetypes. The archetype is a closed whitelist (the mechanics live
-// client-side keyed by it); only the prose is themed. Optional — absent worlds fall
-// back to the house defaults.
-export interface RpgSetupSponsor { archetype: 'pathfinders' | 'armorers' | 'mystics'; name: string; blurb?: string; }
-export interface RpgSetupResult {
-  title: string;
-  intro: string;
-  locations: RpgSetupLocation[];
-  heroes: RpgSetupHero[];
-  quest: { title: string; desc: string };
-  sponsors?: RpgSetupSponsor[];
-  fallback: boolean;
-  reason?: string;
-}
-export interface RpgSceneResult {
-  narration: string;
-  choices: Array<{ label: string; tag: string }>;
-  fallback: boolean;
-  reason?: string;
-}
-export interface RpgDialogueResult {
-  reply: string;
-  effect: 'none' | 'reveal' | 'rumor' | 'heal' | 'recruit' | 'warn';
-  end: boolean;
-  fallback: boolean;
-  reason?: string;
-}
 
 // RTS enemy commander reply: a whitelist-filtered EnemyPlan. The client still
 // re-validates it through enemy.resolvePlan before applying (authoritative).

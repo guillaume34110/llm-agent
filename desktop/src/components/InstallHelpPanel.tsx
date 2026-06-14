@@ -144,12 +144,12 @@ export default function InstallHelpPanel() {
         cost $99–$500/year each and would just pass cost onto users. The MonkeyAgent binary is
         open source — verify or build it yourself at{' '}
         <a
-          href="https://github.com/guillaume34110/llm-agent"
+          href="https://github.com/guillaume34110/llm-agent-"
           target="_blank"
           rel="noreferrer"
           className="text-[var(--accent)] underline"
         >
-          github.com/guillaume34110/llm-agent
+          github.com/guillaume34110/llm-agent-
         </a>
         .
       </div>

@@ -15,7 +15,7 @@ from monkey import agent as ag
 
 # Literal CLI invocations: cmd + (flag|path|quote). MUST load shell+files.
 LITERAL_COMMANDS = [
-    "ls /tmp/example_dir",
+    "ls /Users/user/Documents/Agent/dossier_sylvanus",
     "ls -la",
     'cat "foo bar.txt"',
     "cat ./file.txt",
@@ -98,7 +98,7 @@ def test_file_as_verb_does_not_trigger() -> None:
 # to an empty toolset. Weak 3B models substitute *any* dangled tool, over-tooling
 # direct-answer questions (7-14 calls, 90-250s, empty replies). File inspectors
 # are NOT in the default chat toolset; they arrive only when a file-intent trigger
-# loads the files pack (see test below). See monkeyAgent over-tooling notes.
+# loads the files pack (see test below). See second-brain monkeyAgent over-tooling.
 def test_pure_chat_exposes_zero_tools() -> None:
     packs = ag._select_packs("chat", "hello", session_id=None)
     tools = ag._get_active_tools("local", packs)

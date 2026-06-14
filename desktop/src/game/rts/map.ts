@@ -1,11 +1,11 @@
-// RTS « Iron Marsh » — deterministic map generation. Reuses the RPG's tiny
-// seedable RNG (makeRng/seedFrom in rpg/dice.ts) so a seed always yields the same
+// RTS « Iron Marsh » — deterministic map generation. Uses a tiny seedable RNG
+// (makeRng/seedFrom in ./rng) so a seed always yields the same
 // battlefield. Each seed picks a random start placement and one of several terrain
 // styles, so no two seeds look alike, while the two bases stay point-symmetric
 // across the map centre — always far apart (never adjacent) and keeping the enemy
 // AI's mirror-guess of the player base exact.
 
-import { makeRng, seedFrom } from '../rpg/dice';
+import { makeRng, seedFrom } from './rng';
 import type { Terrain } from './types';
 
 export interface GeneratedMap {

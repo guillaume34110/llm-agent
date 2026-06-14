@@ -2,10 +2,10 @@
 
 
 a = Analysis(
-    ['desktop/manager.py'],
+    ['/Users/user/Documents/perso/executor/desktop/manager.py'],
     pathex=[],
     binaries=[],
-    datas=[('desktop/ui', 'desktop/ui')],
+    datas=[('/Users/user/Documents/perso/executor/desktop/ui', 'desktop/ui')],
     hiddenimports=[],
     hookspath=[],
     hooksconfig={},

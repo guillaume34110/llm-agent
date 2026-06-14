@@ -703,6 +703,52 @@ def chess_move_endpoint(req: ChessMoveRequest):
     return {"move": move, "fallback": False}
 
 
+# ── Game maker — raw single-turn completion ──────────────────────────────────
+# The 8-bit maker's sprite/map AI needs a CLEAN model call: just a terse author
+# spec as system + the user's request, NO agent SYSTEM_PROMPT, NO tools, NO intent
+# router. Going through /chat/stream corrupts structured output (the agent fires
+# generate_image on "draw…" prompts and its prose-oriented system prompt competes
+# with the grid/DSL format). This endpoint is the bypass: one system + one user
+# message in, one text out. The client owns all parsing/validation. Local-first:
+# no content stored, no payload logged.
+
+class MakerCompleteRequest(BaseModel):
+    system: str
+    prompt: str
+    model_id: str | None = None
+    temperature: float | None = None
+    provider_mode: str | None = None
+    provider_user_id: str | None = None
+    llama_base_url: str | None = None
+    llama_bearer_token: str | None = None
+
+
+@app.post("/game/maker/complete")
+def maker_complete_endpoint(req: MakerCompleteRequest):
+    model_id = _game_model_id(req.model_id)
+    if not model_id:
+        raise HTTPException(400, "no_model")
+    messages = [
+        {"role": "system", "content": req.system},
+        {"role": "user", "content": req.prompt},
+    ]
+    try:
+        result = llm_mod.chat(
+            messages,
+            model_id=model_id,
+            tools=None,
+            force_tool=False,
+            provider_mode=req.provider_mode,
+            provider_user_id=req.provider_user_id,
+            llama_base_url=req.llama_base_url,
+            llama_bearer_token=req.llama_bearer_token,
+            temperature=req.temperature,
+        )
+    except Exception as e:
+        raise HTTPException(502, f"llm_error: {str(e)[:160]}")
+    return {"text": (result.get("text") or "")}
+
+
 # ── Poker (heads-up Texas Hold'em) — LLM opponent ────────────────────────────
 # The client owns EVERY number (deck, pot, stacks, betting legality, hand ranking,
 # win/loss). This endpoint only asks the model to pick ONE action token from the
@@ -1067,42 +1113,6 @@ def rts_command_endpoint(req: RtsCommandRequest):
                      "targets": plan_targets, "taunt": taunt}, "fallback": False}
 
 
-# ── RPG (Monkey Quest) ──────────────────────────────────────────────────────
-# The LLM is the narrative GM only: it authors flavor (world content, scene prose,
-# choices) but never owns any number. All mechanics (HP, dice, XP, travel graph,
-# combat) live in the desktop client (chess-style split). Every endpoint validates
-# + clamps the model output and falls back to a deterministic default so the game
-# stays playable even with a weak 3B or no model at all. No user content is stored
-# server-side (local-first invariant) — only the compact context the client sends.
-
-_RPG_KINDS = ["village", "town", "wild", "forest", "dungeon", "ruin", "cave", "camp"]
-# The three FIXED explorer-club archetypes a world may rename/reflavor (boon
-# mechanics live client-side keyed by these ids — the model only themes the prose).
-_RPG_SPONSOR_ARCH = ["pathfinders", "armorers", "mystics"]
-
-_RPG_TEMPLATE = {
-    "title": "The Hollow Road",
-    "intro": "A quiet land on the edge of trouble. Something stirs in the deep places.",
-    "locations": [
-        {"name": "Brackenford", "kind": "village", "blurb": "A muddy village clinging to a river bend."},
-        {"name": "Old King's Road", "kind": "wild", "blurb": "A cracked road swallowed by tall grass."},
-        {"name": "Mistwood", "kind": "forest", "blurb": "Pale trees, wet silence, watching eyes."},
-        {"name": "Stag's Rest", "kind": "town", "blurb": "A walled town of traders and rumor."},
-        {"name": "Greyfell Ruin", "kind": "ruin", "blurb": "Toppled stones older than any king."},
-        {"name": "The Sunken Deep", "kind": "dungeon", "blurb": "Stairs going down into cold dark."},
-    ],
-    "heroes": [
-        {"className": "Warrior", "blurb": "Strong arm, plain steel, no patience for riddles."},
-        {"className": "Ranger", "blurb": "Quick, quiet, deadly at a distance."},
-        {"className": "Mage", "blurb": "Frail body, dangerous mind."},
-        {"className": "Cleric", "blurb": "Mends wounds and stares down the dark."},
-        {"className": "Rogue", "blurb": "Light fingers, lighter conscience."},
-        {"className": "Druid", "blurb": "Speaks for the wild, and the wild answers."},
-    ],
-    "quest": {"title": "The Deep Below", "desc": "Find out what crawls up from the Sunken Deep."},
-}
-
-
 def _extract_json(raw: str):
     """Pull a JSON object out of an LLM reply (handles code fences + prose)."""
     if not raw:
@@ -1124,509 +1134,6 @@ def _extract_json(raw: str):
         return json.loads(_re.sub(r",\s*([}\]])", r"\1", blob))
     except Exception:
         return None
-
-
-def _salvage_setup(raw: str) -> dict | None:
-    """Last-resort field extraction when the model's JSON won't parse.
-
-    Small local models emit malformed JSON (stray ``*`` before values, missing
-    object braces, broken nesting). Location/hero objects are flat, so we grab
-    every innermost ``{...}`` chunk and pull fields per-key with a tolerant
-    regex that skips junk between ``:`` and the quoted value. Always preferable
-    to discarding good authored flavor and serving the canned template."""
-    if not raw:
-        return None
-
-    def _field(chunk: str, key: str):
-        m = _re.search(r'"' + key + r'"\s*:[^"]*"([^"]*)"', chunk)
-        return m.group(1).strip() if m else None
-
-    locations, heroes = [], []
-    for chunk in _re.findall(r"\{[^{}]*\}", raw):
-        name = _field(chunk, "name")
-        kind = _field(chunk, "kind")
-        blurb = _field(chunk, "blurb")
-        cn = _field(chunk, "className") or _field(chunk, "class")
-        if kind and name:
-            locations.append({"name": name, "kind": kind, "blurb": blurb or name})
-        elif cn:
-            heroes.append({"className": cn, "blurb": blurb or cn})
-        elif name and not heroes and not locations:
-            # bare {"name": ...} before any typed object → treat as a hero option
-            heroes.append({"className": name, "blurb": blurb or name})
-    if not locations and not heroes:
-        return None
-
-    def _top(key: str):
-        m = _re.search(r'"' + key + r'"\s*:[^"]*"([^"]*)"', raw)
-        return m.group(1).strip() if m else None
-
-    quest = {}
-    qm = _re.search(r'"quest"\s*:\s*\{([^{}]*)\}', raw)
-    if qm:
-        seg = qm.group(1)
-        qt = _re.search(r'"title"\s*:[^"]*"([^"]*)"', seg)
-        qd = _re.search(r'"(?:desc|description)"\s*:[^"]*"([^"]*)"', seg)
-        if qt:
-            quest["title"] = qt.group(1).strip()
-        if qd:
-            quest["desc"] = qd.group(1).strip()
-    return {
-        "title": _top("title"),
-        "intro": _top("intro"),
-        "locations": locations,
-        "heroes": heroes,
-        "quest": quest,
-    }
-
-
-def _clamp_str(v, n: int, default: str = "") -> str:
-    if not isinstance(v, str):
-        return default
-    v = v.strip()
-    return v[:n] if v else default
-
-
-class RpgSetupRequest(BaseModel):
-    theme: str | None = None
-    lang: str | None = None
-    model_id: str | None = None
-    provider_mode: str | None = None
-    provider_user_id: str | None = None
-    llama_base_url: str | None = None
-    llama_bearer_token: str | None = None
-
-
-def _coerce_setup(data: dict) -> dict | None:
-    """Validate + clamp model-authored world content into the fixed shape.
-
-    Topology (positions, edges, danger, start) is built client-side — the model
-    only supplies flavor, so we just need 6 locations, 6 heroes and a quest."""
-    if not isinstance(data, dict):
-        return None
-    locs_in = data.get("locations") or []
-    heroes_in = data.get("heroes") or data.get("heroOptions") or []
-    if not isinstance(locs_in, list) or not isinstance(heroes_in, list):
-        return None
-    locations = []
-    for it in locs_in:
-        if not isinstance(it, dict):
-            continue
-        name = _clamp_str(it.get("name"), 40)
-        if not name:
-            continue
-        kind = _clamp_str(it.get("kind"), 20).lower()
-        if kind not in _RPG_KINDS:
-            kind = "wild"
-        locations.append({"name": name, "kind": kind, "blurb": _clamp_str(it.get("blurb"), 160, name)})
-        if len(locations) >= 6:
-            break
-    heroes = []
-    for it in heroes_in:
-        if not isinstance(it, dict):
-            continue
-        cn = _clamp_str(it.get("className") or it.get("class") or it.get("name"), 24)
-        if not cn:
-            continue
-        heroes.append({"className": cn, "blurb": _clamp_str(it.get("blurb"), 140, cn)})
-        if len(heroes) >= 6:
-            break
-    # Need a usable core; only fall back entirely when the model gave almost
-    # nothing. Otherwise keep the authored content and top it up from the
-    # template — much kinder to small local models than discarding good output.
-    if len(locations) < 3 or len(heroes) < 2:
-        return None
-    if len(locations) < 6:
-        used = {l["name"].lower() for l in locations}
-        fillers = [dict(t) for t in _RPG_TEMPLATE["locations"] if t["name"].lower() not in used]
-        # Preserve the authored start (first) and climax (last); pad the middle.
-        head, tail = locations[0], locations[-1]
-        middle = locations[1:-1]
-        while len(middle) + 2 < 6 and fillers:
-            middle.append(fillers.pop(0))
-        locations = [head] + middle + [tail]
-    if len(heroes) < 6:
-        seen_cls = {h["className"].lower() for h in heroes}
-        for t in _RPG_TEMPLATE["heroes"]:
-            if len(heroes) >= 6:
-                break
-            if t["className"].lower() in seen_cls:
-                continue
-            seen_cls.add(t["className"].lower())
-            heroes.append(dict(t))
-    q = data.get("quest") if isinstance(data.get("quest"), dict) else {}
-    quest = {
-        "title": _clamp_str(q.get("title"), 60, _RPG_TEMPLATE["quest"]["title"]),
-        "desc": _clamp_str(q.get("desc") or q.get("description"), 200, _RPG_TEMPLATE["quest"]["desc"]),
-    }
-    # Sponsors: world-themed names for the three FIXED explorer-club archetypes. The
-    # archetype is a closed whitelist (the boon mechanics live client-side keyed by
-    # it) — the model only renames/reflavors. Dedupe by archetype, keep the prose.
-    sponsors = []
-    seen_arch = set()
-    for it in (data.get("sponsors") or []):
-        if not isinstance(it, dict):
-            continue
-        arch = _clamp_str(it.get("archetype") or it.get("id") or it.get("type"), 20).lower()
-        if arch not in _RPG_SPONSOR_ARCH or arch in seen_arch:
-            continue
-        name = _clamp_str(it.get("name"), 48)
-        if not name:
-            continue
-        seen_arch.add(arch)
-        sponsors.append({"archetype": arch, "name": name, "blurb": _clamp_str(it.get("blurb"), 120, name)})
-        if len(sponsors) >= 3:
-            break
-    out = {
-        "title": _clamp_str(data.get("title"), 60, _RPG_TEMPLATE["title"]),
-        "intro": _clamp_str(data.get("intro"), 240, _RPG_TEMPLATE["intro"]),
-        "locations": locations,
-        "heroes": heroes,
-        "quest": quest,
-    }
-    if sponsors:
-        out["sponsors"] = sponsors
-    return out
-
-
-@app.post("/game/rpg/setup")
-def rpg_setup_endpoint(req: RpgSetupRequest):
-    """One-time world generation. LLM authors flavor; client builds the graph.
-
-    Falls back to a built-in template world if there is no model or the reply
-    can't be coerced — the adventure is always launchable."""
-    theme = (req.theme or "").strip() or "classic fantasy"
-    model_id = _game_model_id(req.model_id)
-    if not model_id:
-        return {**_RPG_TEMPLATE, "fallback": True, "reason": "no_model"}
-    sys = (
-        "You are a tabletop RPG world author. Reply with ONE JSON object and nothing "
-        "else. Schema: {\"title\": str, \"intro\": str (<=2 sentences), \"locations\": "
-        "[exactly 6 {\"name\": str, \"kind\": one of "
-        "[village,town,wild,forest,dungeon,ruin,cave,camp], \"blurb\": str (<=1 "
-        "sentence)}], \"heroes\": [exactly 6 {\"className\": str, \"blurb\": str (<=1 "
-        "sentence)}], \"quest\": {\"title\": str, \"desc\": str}, \"sponsors\": [exactly "
-        "3 {\"archetype\": one of [pathfinders,armorers,mystics], \"name\": str, "
-        "\"blurb\": str (<=1 sentence)}]}. No prose, no markdown. "
-        "Order locations from the safe start to the dangerous climax. Invent original "
-        "names that fit the theme; do not reuse these placeholders. Location object "
-        "shape: {\"name\": \"<unique place name>\", \"kind\": \"town\", \"blurb\": \"<one "
-        "vivid sentence>\"}. Hero object shape: {\"className\": \"<class or archetype>\", "
-        "\"blurb\": \"<one vivid sentence>\"}. Sponsors are explorer guilds that back "
-        "the hero: name one for EACH archetype, themed to the world. pathfinders = "
-        "scouts/cartographers; armorers = smiths/quartermasters; mystics = "
-        "scholars/occultists. Sponsor object shape: {\"archetype\": \"pathfinders\", "
-        "\"name\": \"<themed guild name>\", \"blurb\": \"<one vivid sentence>\"}."
-        + _lang_clause(req.lang)
-    )
-    user = f"Theme: {theme}\nGenerate the world. JSON only:"
-    messages = [{"role": "system", "content": sys}, {"role": "user", "content": user}]
-    try:
-        result = llm_mod.chat(
-            messages, model_id=model_id, tools=None, force_tool=False,
-            provider_mode=req.provider_mode, provider_user_id=req.provider_user_id,
-            llama_base_url=req.llama_base_url, llama_bearer_token=req.llama_bearer_token,
-        )
-        raw = (result.get("text") or "").strip()
-    except Exception as e:
-        return {**_RPG_TEMPLATE, "fallback": True, "reason": f"llm_error: {str(e)[:120]}"}
-    coerced = _coerce_setup(_extract_json(raw) or {})
-    if coerced is None:
-        # JSON unparseable → salvage authored flavor field-by-field before
-        # giving up on the model and serving the canned template world.
-        coerced = _coerce_setup(_salvage_setup(raw) or {})
-    if coerced is None:
-        return {**_RPG_TEMPLATE, "fallback": True, "reason": "unparsed"}
-    return {**coerced, "fallback": False}
-
-
-class RpgSceneRequest(BaseModel):
-    context: str                       # compact situation the client composed
-    allowed_tags: list[str]            # the only action tags the client will honor
-    theme: str | None = None
-    lang: str | None = None
-    model_id: str | None = None
-    provider_mode: str | None = None
-    provider_user_id: str | None = None
-    llama_base_url: str | None = None
-    llama_bearer_token: str | None = None
-
-
-# Common words small models emit instead of the exact action tag. Mapping these
-# salvages near-misses so we keep the LLM's themed choice instead of falling back.
-_TAG_SYNONYMS = {
-    "explore": "search", "investigate": "search", "examine": "search", "loot": "search", "scavenge": "search",
-    "attack": "fight", "battle": "fight", "combat": "fight", "kill": "fight", "engage": "fight",
-    "speak": "talk", "ask": "talk", "chat": "talk", "negotiate": "talk", "converse": "talk",
-    "sleep": "rest", "camp": "rest", "heal": "rest", "recover": "rest",
-    "go": "leave", "continue": "leave", "travel": "leave", "move": "leave", "map": "leave", "depart": "leave",
-    "join": "recruit", "hire": "recruit", "ally": "recruit",
-    "observe": "look", "watch": "look", "survey": "look",
-    "objective": "quest", "mission": "quest", "goal": "quest",
-}
-
-
-def _normalize_tag(tag: str, allowed_set: set) -> str:
-    """Map a model-emitted tag onto an allowed one (exact, then synonym)."""
-    if tag in allowed_set:
-        return tag
-    mapped = _TAG_SYNONYMS.get(tag)
-    return mapped if mapped in allowed_set else ""
-
-
-def _salvage_choices(raw: str, allowed_set: set) -> list[dict]:
-    """Pull {label, tag} pairs out of a malformed/truncated choices array.
-
-    Small models sometimes emit valid label/tag fields inside broken JSON
-    (unclosed array, stray commas). Grab every quoted label+tag pair in order
-    and normalize the tag so we keep the model's themed buttons instead of
-    falling back to generic ones."""
-    out: list[dict] = []
-    seen: set = set()
-    for m in _re.finditer(
-        r'"label"\s*:\s*"([^"]{1,60})"\s*,\s*"tag"\s*:\s*"([^"]{1,20})"', raw
-    ):
-        label = m.group(1).strip()
-        tag = _normalize_tag(m.group(2).strip().lower(), allowed_set)
-        if label and tag and tag not in seen:
-            seen.add(tag)
-            out.append({"label": label, "tag": tag})
-    return out
-
-
-def _fallback_choices(allowed: list[str]) -> list[dict]:
-    labels = {
-        "search": "Search the area", "talk": "Look for someone to talk to",
-        "look": "Look around", "rest": "Rest a moment", "fight": "Ready your weapon",
-        "quest": "Check your quest", "leave": "Leave",
-    }
-    out = [{"label": labels.get(t, t.title()), "tag": t} for t in allowed[:4]]
-    return out or [{"label": "Look around", "tag": "look"}]
-
-
-@app.post("/game/rpg/scene")
-def rpg_scene_endpoint(req: RpgSceneRequest):
-    """Narrate the current scene + offer 2-4 choices, each tagged with a client
-    action. Choices are filtered to allowed_tags; on any miss we return generic
-    choices so the UI always has buttons (chess guard-rail)."""
-    allowed = [t for t in (req.allowed_tags or []) if isinstance(t, str) and t.strip()]
-    if not allowed:
-        allowed = ["look", "leave"]
-    model_id = _game_model_id(req.model_id)
-    if not model_id:
-        return {"narration": req.context[:240], "choices": _fallback_choices(allowed), "fallback": True, "reason": "no_model"}
-    sys = (
-        "You are the game master of a tabletop RPG. Narrate the current scene in 2-3 "
-        "vivid sentences, second person. Then offer 2 or 3 choices. Reply with ONE "
-        "JSON object only: {\"narration\": str, \"choices\": [{\"label\": str (<=8 "
-        "words), \"tag\": one of the ALLOWED tags}]}. Every choice tag MUST be copied "
-        "exactly from the allowed list. Example with allowed [look, fight, leave]: "
-        "{\"narration\": \"Cold wind cuts the ridge as armored shapes block the pass.\", "
-        "\"choices\": [{\"label\": \"Charge the guards\", \"tag\": \"fight\"}, "
-        "{\"label\": \"Slip back down the trail\", \"tag\": \"leave\"}]}. "
-        "No markdown, no extra text."
-        + _lang_clause(req.lang)
-    )
-    user = (
-        (f"Theme: {req.theme}\n" if req.theme else "")
-        + f"Allowed tags: {', '.join(allowed)}\n"
-        + f"Situation: {req.context}\n"
-        "JSON only:"
-    )
-    messages = [{"role": "system", "content": sys}, {"role": "user", "content": user}]
-    try:
-        result = llm_mod.chat(
-            messages, model_id=model_id, tools=None, force_tool=False,
-            provider_mode=req.provider_mode, provider_user_id=req.provider_user_id,
-            llama_base_url=req.llama_base_url, llama_bearer_token=req.llama_bearer_token,
-        )
-        raw = (result.get("text") or "").strip()
-    except Exception as e:
-        return {"narration": req.context[:240], "choices": _fallback_choices(allowed), "fallback": True, "reason": f"llm_error: {str(e)[:120]}"}
-    data = _extract_json(raw) or {}
-    narration = _clamp_str(data.get("narration"), 400)
-    allowed_set = {t.lower() for t in allowed}
-    choices = []
-    for it in (data.get("choices") or []):
-        if not isinstance(it, dict):
-            continue
-        tag = _normalize_tag(_clamp_str(it.get("tag"), 20).lower(), allowed_set)
-        label = _clamp_str(it.get("label"), 60)
-        if tag and label and tag not in {c["tag"] for c in choices}:
-            choices.append({"label": label, "tag": tag})
-        if len(choices) >= 4:
-            break
-    # Choices array malformed but narration is fine → salvage label/tag pairs
-    # from the raw text before giving up on the model's themed buttons.
-    if len(choices) < 2:
-        for c in _salvage_choices(raw, allowed_set):
-            if c["tag"] not in {x["tag"] for x in choices}:
-                choices.append(c)
-            if len(choices) >= 4:
-                break
-    if narration and len(choices) >= 2:
-        return {"narration": narration, "choices": choices, "fallback": False}
-    return {
-        "narration": narration or req.context[:240],
-        "choices": choices if len(choices) >= 2 else _fallback_choices(allowed),
-        "fallback": True, "reason": "unparsed",
-    }
-
-
-class RpgResolveRequest(BaseModel):
-    context: str                       # what the player did
-    outcome: str                       # the mechanical result the client computed
-    theme: str | None = None
-    lang: str | None = None
-    model_id: str | None = None
-    provider_mode: str | None = None
-    provider_user_id: str | None = None
-    llama_base_url: str | None = None
-    llama_bearer_token: str | None = None
-
-
-@app.post("/game/rpg/resolve")
-def rpg_resolve_endpoint(req: RpgResolveRequest):
-    """Narrate the result of an already-resolved mechanical action. The client
-    has done the dice; the model only adds one or two sentences of colour."""
-    model_id = _game_model_id(req.model_id)
-    if not model_id:
-        return {"narration": req.outcome[:240], "fallback": True, "reason": "no_model"}
-    sys = (
-        "You are the GAME MASTER — a god watching over this world, present and "
-        "vivid. In 1-2 sentences, second person, narrate the result of the "
-        "player's action with the weight of a deity. If the result mentions a "
-        "CRITICAL HIT, proclaim it with awe and triumph; if a CRITICAL FAILURE, "
-        "react with wrath or sorrow. Do not invent numbers or change the "
-        "outcome. Plain text only."
-        + _lang_clause(req.lang)
-    )
-    user = (
-        (f"Theme: {req.theme}\n" if req.theme else "")
-        + f"Action: {req.context}\nResult: {req.outcome}\nNarrate:"
-    )
-    messages = [{"role": "system", "content": sys}, {"role": "user", "content": user}]
-    try:
-        result = llm_mod.chat(
-            messages, model_id=model_id, tools=None, force_tool=False,
-            provider_mode=req.provider_mode, provider_user_id=req.provider_user_id,
-            llama_base_url=req.llama_base_url, llama_bearer_token=req.llama_bearer_token,
-        )
-        raw = _clamp_str((result.get("text") or "").strip(), 400)
-    except Exception as e:
-        return {"narration": req.outcome[:240], "fallback": True, "reason": f"llm_error: {str(e)[:120]}"}
-    return {"narration": raw or req.outcome[:240], "fallback": not bool(raw)}
-
-
-class RpgDialogueRequest(BaseModel):
-    context: str                       # compact situation (place, party, quest)
-    npc_name: str                      # who the player is speaking with
-    npc_role: str                      # villager / merchant / elder / guard …
-    history: list[dict] = []           # [{who: 'player'|'npc', text: str}], recent turns
-    player_message: str                # the player's free-text line
-    allowed_effects: list[str]         # the only world-effects the client will apply
-    theme: str | None = None
-    lang: str | None = None
-    model_id: str | None = None
-    provider_mode: str | None = None
-    provider_user_id: str | None = None
-    llama_base_url: str | None = None
-    llama_bearer_token: str | None = None
-
-
-# The closed set of world-effects an NPC reply may carry. The model only picks a
-# token; the *client* computes every magnitude and validates feasibility. None of
-# these may alter the main quest goal or node order — the scenario thread (trame)
-# is immutable. They only add discovery, rumors, healing, an ally, or danger
-# intel, so the adventure can evolve without breaking the storyline.
-_RPG_EFFECTS = {"none", "reveal", "rumor", "heal", "recruit", "warn"}
-
-
-def _coerce_dialogue(data: dict, allowed: set) -> dict | None:
-    if not isinstance(data, dict):
-        return None
-    reply = _clamp_str(data.get("reply") or data.get("text") or data.get("say"), 400)
-    if not reply:
-        return None
-    effect = _clamp_str(data.get("effect"), 20).lower()
-    if effect not in allowed:
-        effect = "none"
-    end = bool(data.get("end") is True or str(data.get("end")).lower() == "true")
-    return {"reply": reply, "effect": effect, "end": end}
-
-
-def _salvage_dialogue(raw: str, allowed: set) -> dict | None:
-    """Recover reply/effect from malformed JSON (small models drop braces)."""
-    if not raw:
-        return None
-    rm = _re.search(r'"(?:reply|text|say)"\s*:[^"]*"([^"]*)"', raw)
-    reply = rm.group(1).strip() if rm else None
-    if not reply:
-        return None
-    em = _re.search(r'"effect"\s*:[^"]*"([^"]*)"', raw)
-    effect = (em.group(1).strip().lower() if em else "none")
-    if effect not in allowed:
-        effect = "none"
-    end = bool(_re.search(r'"end"\s*:\s*true', raw))
-    return {"reply": reply, "effect": effect, "end": end}
-
-
-@app.post("/game/rpg/dialogue")
-def rpg_dialogue_endpoint(req: RpgDialogueRequest):
-    """Free-text conversation between the player and an NPC. The model replies in
-    character and may pick ONE world-effect token from allowed_effects; the client
-    owns the actual mechanics and never lets an effect touch the main quest. Falls
-    back to a generic in-character line so the dialogue never blocks."""
-    allowed = {e for e in (req.allowed_effects or []) if e in _RPG_EFFECTS} or {"none"}
-    fallback_reply = f"{req.npc_name} nods slowly, weighing your words."
-    model_id = _game_model_id(req.model_id)
-    if not model_id:
-        return {"reply": fallback_reply, "effect": "none", "end": False, "fallback": True, "reason": "no_model"}
-    hist = "\n".join(
-        f"{'Player' if t.get('who') == 'player' else req.npc_name}: {_clamp_str(t.get('text'), 200)}"
-        for t in (req.history or [])[-6:] if isinstance(t, dict) and t.get("text")
-    )
-    sys = (
-        "You are role-playing a single non-player character in a tabletop RPG. Stay "
-        f"in character as {req.npc_name}, a {req.npc_role}. Reply with ONE JSON object "
-        "only: {\"reply\": str (1-3 sentences of in-character speech), \"effect\": one "
-        "of the ALLOWED effects, \"end\": bool}. The effect is what your words cause in "
-        "the world; pick \"none\" unless the conversation clearly warrants one. NEVER "
-        "contradict or rewrite the main quest — you may add rumors, reveal places, "
-        "offer help, but the hero's goal stays fixed. Effects: none=just talk, "
-        "reveal=point them to a nearby place, rumor=share a lead/side-quest, heal=tend "
-        "their wounds, recruit=offer to send an ally with them, warn=warn of danger "
-        "ahead. Set end=true only when the conversation has naturally finished. No "
-        "markdown, no extra text."
-        + _lang_clause(req.lang)
-    )
-    user = (
-        (f"Theme: {req.theme}\n" if req.theme else "")
-        + f"Allowed effects: {', '.join(sorted(allowed))}\n"
-        + f"Situation: {req.context}\n"
-        + (f"Recent conversation:\n{hist}\n" if hist else "")
-        + f"Player says: {req.player_message}\nJSON only:"
-    )
-    messages = [{"role": "system", "content": sys}, {"role": "user", "content": user}]
-    try:
-        result = llm_mod.chat(
-            messages, model_id=model_id, tools=None, force_tool=False,
-            provider_mode=req.provider_mode, provider_user_id=req.provider_user_id,
-            llama_base_url=req.llama_base_url, llama_bearer_token=req.llama_bearer_token,
-        )
-        raw = (result.get("text") or "").strip()
-    except Exception as e:
-        return {"reply": fallback_reply, "effect": "none", "end": False, "fallback": True, "reason": f"llm_error: {str(e)[:120]}"}
-    out = _coerce_dialogue(_extract_json(raw) or {}, allowed)
-    if out is None:
-        out = _salvage_dialogue(raw, allowed)
-    if out is None:
-        # No JSON we could parse or salvage. We do NOT pass the raw model text
-        # through as the NPC's line: a model that can't honour the contract emits
-        # word-salad, and shipping that verbatim is worse than a canned line. Fall
-        # back to a generic in-character reply instead.
-        return {"reply": fallback_reply, "effect": "none", "end": False, "fallback": True, "reason": "unparsed"}
-    return {**out, "fallback": False}
 
 
 @app.post("/approve")

@@ -41,7 +41,7 @@ The App is provided "as is" without warranty. To the maximum extent permitted by
 We may update these Terms; continued use after changes constitutes acceptance.
 
 ## 12. Contact
-privacy@progsoft.ai`;
+gaillard.guillaum@gmail.com`;
 
 export const PRIVACY_POLICY = `# Privacy Policy
 
@@ -99,4 +99,4 @@ Passwords are hashed with bcrypt. JWT secrets are server-side env vars. HTTPS en
 The App is not directed at children under 16. Age is confirmed at first launch.
 
 ## Contact
-privacy@progsoft.ai — data controller.`;
+gaillard.guillaum@gmail.com — data controller.`;

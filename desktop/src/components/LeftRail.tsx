@@ -1,5 +1,5 @@
 import React from 'react';
-import { Inbox, MessageSquare, CheckSquare, Users, BookOpen, Activity, Bot } from 'lucide-react';
+import { Inbox, MessageSquare, CheckSquare, Users, BookOpen, Activity, Bot, Gamepad2 } from 'lucide-react';
 import type { AgentView } from '../types';
 
 interface Props {
@@ -23,6 +23,7 @@ const ENTITIES: Entity[] = [
   { id: 'knowledge',  label: 'Knowledge',  icon: BookOpen,      hint: '⌘4' },
   { id: 'background', label: 'Background', icon: Activity,      hint: '⌘5' },
   { id: 'chatbots',   label: 'Chatbots',   icon: Bot,           hint: '⌘6' },
+  { id: 'maker',      label: 'Game Edit',  icon: Gamepad2,      hint: '⌘7' },
 ];
 
 export default function LeftRail({ view, onViewChange, badges = {} }: Props) {

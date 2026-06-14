@@ -2145,7 +2145,7 @@ def _dispatch_tool(name: str, args: dict) -> str:
     if name not in TOOL_NAMES:
         return f"ERREUR: outil inconnu {name}"
     # Strip kwargs that no tool here accepts but other agent platforms inject
-    # (agentic-CLI style `run_in_background`, `description`, `timeout_ms`, etc.)
+    # (Claude Code style `run_in_background`, `description`, `timeout_ms`, etc.)
     if isinstance(args, dict):
         args = {k: v for k, v in args.items() if k not in (
             "run_in_background", "description", "timeout_ms",
@@ -4655,21 +4655,7 @@ _GAME_CHESS_RE = re.compile(
 )
 
 
-# Like chess: a bare topic mention ("what is an rpg") must NOT launch — only a
-# clear start intent (launch verb near the game word, or an unambiguous phrase).
-_GAME_RPG_RE = re.compile(
-    r"(?:"
-    r"(?:jou(?:er|ons|e|ez)|lance|ouvre|d[ée]marre|start|launch|play|begin|veu[xt])"
-    r"\b.{0,24}\b"
-    r"(?:jdr|rpg|aventure|donjon|dungeon|jeux?\s+de\s+r[ôo]les?|role[\s-]?play(?:ing)?)"
-    r"|(?:une\s+)?(?:partie|campagne)\s+(?:de\s+)?(?:jdr|rpg)"
-    r"|dungeon\s+crawl"
-    r")",
-    re.I,
-)
-
-
-# Like chess/rpg: only a clear start intent launches — a bare topic mention does
+# Like chess: only a clear start intent launches — a bare topic mention does
 # not. Matches the RTS, its title "Iron Marsh", or the faction framing.
 _GAME_RTS_RE = re.compile(
     r"(?:"
@@ -4684,7 +4670,7 @@ _GAME_RTS_RE = re.compile(
 )
 
 
-# Like chess/rpg/rts: only a clear start intent launches — a bare topic mention
+# Like chess/rts: only a clear start intent launches — a bare topic mention
 # ("poker odds?") must not. Matches Texas Hold'em / poker with a play/launch verb,
 # or unambiguous phrases ("partie de poker", "poker game").
 _GAME_POKER_RE = re.compile(
@@ -4713,6 +4699,31 @@ _GAME_SCRABBLE_RE = re.compile(
 )
 
 
+# The 8-bit game maker (PICO-8-like editor). A clear "open the editor" or
+# "make/build a game" intent launches the maker console. Bare topic mentions
+# ("what is an 8-bit game") must not match.
+_GAME_MAKER_RE = re.compile(
+    r"(?:"
+    r"(?:open|launch|start|ouvre|lance|d[ée]marre)\b.{0,16}\b(?:game\s*)?(?:maker|editor|creator|cr[ée]ateur|[ée]diteur)"
+    r"|(?:game\s*)?(?:maker|cr[ée]ateur\s+de\s+jeu|[ée]diteur\s+de\s+jeu)"
+    r"|(?:make|build|create|design|cr[ée]e[rz]?|fabrique|construi[ts])\b.{0,24}\b(?:8[\s-]?bit|pico[\s-]?8|(?:mini|retro|petit)\s+(?:game|jeu)|(?:my\s+own|mon\s+propre)\s+(?:game|jeu))"
+    r"|(?:make|build|create|design|cr[ée]e[rz]?)\b.{0,12}\b(?:a\s+|un\s+)?game\b"
+    r"|8[\s-]?bit\s+maker"
+    r")",
+    re.I,
+)
+
+
+# Launch one of the user's own saved carts by name ("play my snake",
+# "lance mon jeu pong"). The cart name is resolved client-side; an empty/unknown
+# name falls back to the most recently edited cart.
+_GAME_CART_RE = re.compile(
+    r"(?:play|launch|start|run|open)\b.{0,12}\bmy\s+([\w' -]{1,40})"
+    r"|(?:joue[rz]?|lance|ouvre|d[ée]marre)\b.{0,12}\bmon\s+jeu\s+([\w' -]{1,40})",
+    re.I,
+)
+
+
 def _detect_game_launch(user_message: str) -> dict | None:
     """Return {"game": <id>} when the user clearly wants to start a playable game.
 
@@ -4728,8 +4739,11 @@ def _detect_game_launch(user_message: str) -> dict | None:
         return {"game": "scrabble"}
     if _GAME_RTS_RE.search(msg):
         return {"game": "rts"}
-    if _GAME_RPG_RE.search(msg):
-        return {"game": "rpg"}
+    if _GAME_MAKER_RE.search(msg):
+        return {"game": "maker"}
+    _cm = _GAME_CART_RE.search(msg)
+    if _cm is not None:
+        return {"game": "cart", "cart": (_cm.group(1) or _cm.group(2) or "").strip()}
     return None
 
 
@@ -4812,17 +4826,24 @@ def chat_stream(history: list[dict], user_message: str, model_id: str | None = N
     _game = _detect_game_launch(user_message)
     if _game is not None:
         _g = _game["game"]
+        _g_cart = (_game.get("cart") or "").strip()
         _g_args = {"game": _g}
+        if _g_cart:
+            _g_args["cart"] = _g_cart
         _g_result = f"OK: launched {_g}"
         _g_msg = {
             "chess": "Chess console on. White to move — your turn.",
-            "rpg": "Adventure console booting. Pick your world and your hero.",
             "poker": "Poker table on. Heads-up Texas Hold'em — cards are dealt.",
             "scrabble": "Scrabble board on. Pick a language, then place your tiles.",
+            "maker": "8-bit maker on. Pick a cart from your library or start a new one.",
+            "cart": "Loading your cart — controls are arrows/WASD, Z and X.",
         }.get(_g, f"{_g} console on.")
+        _g_event = {"event": "game_launch", "game": _g}
+        if _g_cart:
+            _g_event["cart"] = _g_cart
         yield {"event": "tool_start", "name": "launch_game", "args": _g_args}
         yield {"event": "tool_done", "name": "launch_game", "args": _g_args, "output": _g_result}
-        yield {"event": "game_launch", "game": _g}
+        yield _g_event
         _persist_session(user_message, _g_msg, [{"name": "launch_game", "args": _g_args, "result": _g_result}])
         yield {"event": "done", "data": _g_msg}
         return

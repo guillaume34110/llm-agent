@@ -23,7 +23,7 @@ billing, P2P matchmaking, and abuse defense. Prompts and model responses are
 ## 2. Data controller & contact
 
 - **Controller:** Progsoft AI
-- **Contact / privacy requests:** privacy@progsoft.ai
+- **Contact / privacy requests:** gaillard.guillaum@gmail.com
 - For erasure or export requests, you can also use the in-app buttons
   (Settings → Account → Export my data / Delete my account), which call
   `GET /api/account/export` and `DELETE /api/account` respectively.

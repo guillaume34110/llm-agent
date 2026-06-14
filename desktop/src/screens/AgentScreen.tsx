@@ -16,8 +16,10 @@ import ChatFeed from '../components/ChatFeed';
 import ChessConsole from '../components/ChessConsole';
 import PokerConsole from '../components/PokerConsole';
 import ScrabbleConsole from '../components/ScrabbleConsole';
-import RpgConsole from '../components/RpgConsole';
 import RtsConsole from '../components/RtsConsole';
+import MakerConsole from '../components/MakerConsole';
+import CartConsole from '../components/CartConsole';
+import { resolveCartByName } from '../game/engine/storage';
 import InputBar from '../components/InputBar';
 import AiDisclosureFooter from '../components/AiDisclosureFooter';
 import WorkspaceBar from '../components/WorkspaceBar';
@@ -60,6 +62,7 @@ export default function AgentScreen({ onSignOut, compact = false }: Props) {
   const [sessionsRefreshKey, setSessionsRefreshKey] = useState(0);
   const [plan, setPlan] = useState<AgentPlan | null>(null);
   const [activeGame, setActiveGame] = useState<string | null>(null);
+  const [activeCartId, setActiveCartId] = useState<string | undefined>(undefined);
   const [view, setView] = useState<AgentView>('inbox');
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [preferences, setPreferences] = useState(getPreferences());
@@ -349,6 +352,12 @@ export default function AgentScreen({ onSignOut, compact = false }: Props) {
         });
       } else if (evt.event === 'game_launch') {
         // Tool launched a playable game frame — swap the chat for the console.
+        if (evt.game === 'cart') {
+          const c = evt.cart ? resolveCartByName(evt.cart) : null;
+          setActiveCartId(c?.id);
+        } else {
+          setActiveCartId(undefined);
+        }
         setActiveGame(evt.game || 'chess');
         setView('chats');
         setLoading(false);
@@ -457,6 +466,7 @@ export default function AgentScreen({ onSignOut, compact = false }: Props) {
       if (k === '3') { e.preventDefault(); setView('people'); return; }
       if (k === '4') { e.preventDefault(); setView('knowledge'); return; }
       if (k === '5') { e.preventDefault(); setView('background'); return; }
+      if (k === '7') { e.preventDefault(); setView('maker'); return; }
       if (k === ',') { e.preventDefault(); setView('settings'); return; }
     };
     window.addEventListener('keydown', onKey);
@@ -551,12 +561,6 @@ export default function AgentScreen({ onSignOut, compact = false }: Props) {
               modelId={activeModelId || preferences.primaryAgentModelId || undefined}
               providerMode="local"
             />
-          ) : view === 'chats' && activeGame === 'rpg' ? (
-            <RpgConsole
-              onExit={() => setActiveGame(null)}
-              modelId={activeModelId || preferences.primaryAgentModelId || undefined}
-              providerMode="local"
-            />
           ) : view === 'chats' && activeGame === 'rts' ? (
             <RtsConsole
               onExit={() => setActiveGame(null)}
@@ -574,6 +578,19 @@ export default function AgentScreen({ onSignOut, compact = false }: Props) {
               onExit={() => setActiveGame(null)}
               modelId={activeModelId || preferences.primaryAgentModelId || undefined}
               providerMode="local"
+            />
+          ) : view === 'chats' && activeGame === 'maker' ? (
+            <MakerConsole
+              onExit={() => setActiveGame(null)}
+              cartId={activeCartId}
+              modelId={activeModelId || preferences.primaryAgentModelId || undefined}
+              providerMode="local"
+            />
+          ) : view === 'chats' && activeGame === 'cart' ? (
+            <CartConsole
+              onExit={() => setActiveGame(null)}
+              cartId={activeCartId}
+              onEdit={(id) => { setActiveCartId(id); setActiveGame('maker'); }}
             />
           ) : view === 'chats' ? (
             <>
@@ -610,6 +627,12 @@ export default function AgentScreen({ onSignOut, compact = false }: Props) {
             <BackgroundView />
           ) : view === 'chatbots' ? (
             <ChatbotsView />
+          ) : view === 'maker' ? (
+            <MakerConsole
+              onExit={() => setView('chats')}
+              modelId={activeModelId || preferences.primaryAgentModelId || undefined}
+              providerMode="local"
+            />
           ) : (
             <SettingsView
               preferences={preferences}
